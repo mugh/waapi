@@ -1,5 +1,5 @@
 # What it is
-A very simple Node js script for whatsapp api, support multi session.
+A very simple Node js script for whatsapp api using bailey, support multi session. 
 
 # Installation
 donwload or clone the files. run `yarn` and then `node app.js` the server will run in port 3000.
