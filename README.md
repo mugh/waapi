@@ -30,6 +30,7 @@ Replace sessionId with unique session. You should start socket for each session 
     sessionid => sessionid
     id => phonenumberwithcountrycode@s.whatsapp.net
     text => message content
+    
 php curl example   
 
     <?php
