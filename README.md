@@ -75,7 +75,49 @@ php curl example
     id => phonenumberwithcountrycode@s.whatsapp.net
     text => caption
     attachment => image url
+    
+php curl example   
 
+    <?php
+    $sessionId = 'mugh';
+    $id = 'phonenumberwithcountrycode@s.whatsapp.net'; // replace with the WhatsApp ID
+    $text = 'Here is a PDF document for you!';
+    $attachmentUrl = "http://localhost/mdoc.pdf"; // replace with file url
+    $filename = basename($attachmentUrl);
+
+    $data = [
+	'sessionId' => $sessionId,
+       	'id' => $id,
+    	'text' => $text,
+    	'attachment' => [
+        'url' => $attachmentUrl,
+        'fileName' => $filename
+    	]
+     	];
+    
+    $url = 'http://localhost:3000/sendfileurl';
+
+    $ch = curl_init($url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_POST, true);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, [
+    'Content-Type: application/json'
+    ]);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
+
+    $response = curl_exec($ch);
+
+    if ($response === false) {
+    	$error = curl_error($ch);
+    	curl_close($ch);
+    	die('Error: ' . $error);
+    }
+
+    curl_close($ch);
+
+    echo 'Response: ' . $response;
+    ?>
+ 
 **Send files via url**
 
     post http://localhost:3000/sendfileurl
