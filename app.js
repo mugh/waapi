@@ -195,7 +195,7 @@ app.post('/sendimageurl', async (req, res) => {
         }
 
         // Fetch the image data
-        const response = await axios.get(attachment.url, { responseType: 'arraybuffer' });
+        const response = await axios.get(attachment, { responseType: 'arraybuffer' });
         const buffer = Buffer.from(response.data, 'binary');
         let message = {
             image: buffer,
@@ -204,10 +204,10 @@ app.post('/sendimageurl', async (req, res) => {
 
         // Send the message with the attachment
         const sentMsg = await session.sock.sendMessage(id, message);
-        res.status(200).send(`Message with attachment sent successfully: ${JSON.stringify(sentMsg)}`);
+        res.status(200).send(`Sent successfully: ${JSON.stringify(sentMsg)}`);
     } catch (error) {
         console.error(`Error sending message with attachment for session ${sessionId}`, error);
-        res.status(500).send('Failed to send message with attachment');
+        res.status(500).send('Failed to send image');
     }
 });
 
@@ -253,10 +253,10 @@ app.post('/sendfileurl', async (req, res) => {
 
         // Send the message with the attachment
         const sentMsg = await session.sock.sendMessage(id, message);
-        res.status(200).send(`Message with attachment sent successfully: ${JSON.stringify(sentMsg)}`);
+        res.status(200).send(`Sent successfully: ${JSON.stringify(sentMsg)}`);
     } catch (error) {
         console.error(`Error sending message with attachment for session ${sessionId}`, error);
-        res.status(500).send('Failed to send message with attachment');
+        res.status(500).send('Failed to send attachment');
     }
 });
 
