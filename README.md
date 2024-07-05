@@ -79,10 +79,57 @@ php curl example
 php curl example   
 
     <?php
-    $sessionId = 'mugh';
+    $sessionId = 'sessionId';
     $id = 'phonenumberwithcountrycode@s.whatsapp.net'; // replace with the WhatsApp ID
-    $text = 'Here is a PDF document for you!';
-    $attachmentUrl = "http://localhost/mdoc.pdf"; // replace with file url
+    $text = 'Here is an image for you!';
+    $attachmentUrl = "http://localhost/img.jppeg"; // replace with file url
+
+    $data = [
+    	'sessionId' => $sessionId,
+    	'id' => $id,
+    	'text' => $text,
+    	'attachment' => $attachmentUrl
+	];
+
+    $url = 'http://localhost:3000/sendimageurl';
+
+    $ch = curl_init($url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_POST, true);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, [
+    'Content-Type: application/json'
+	]);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
+
+    $response = curl_exec($ch);
+
+    if ($response === false) {
+    	$error = curl_error($ch);
+    	curl_close($ch);
+    	die('Error: ' . $error);
+	}
+
+    curl_close($ch);
+
+    echo 'Response: ' . $response;
+    ?>
+ 
+**Send files via url**
+
+    post http://localhost:3000/sendfileurl
+    body :
+    sessionid => sessionid
+    id => phonenumberwithcountrycode@s.whatsapp.net
+    text => caption
+    attachment => file url
+
+    php curl example   
+
+    <?php
+    $sessionId = 'sessionId';
+    $id = 'phonenumberwithcountrycode@s.whatsapp.net'; // replace with the WhatsApp ID
+    $text = 'Here is a doc for you!';
+    $attachmentUrl = "http://localhost/doc.pdf"; // replace with file url
     $filename = basename($attachmentUrl);
 
     $data = [
@@ -90,10 +137,10 @@ php curl example
        	'id' => $id,
     	'text' => $text,
     	'attachment' => [
-        'url' => $attachmentUrl,
-        'fileName' => $filename
-    	]
-     	];
+        	'url' => $attachmentUrl,
+        	'fileName' => $filename
+    		]
+	];
     
     $url = 'http://localhost:3000/sendfileurl';
 
@@ -117,15 +164,6 @@ php curl example
 
     echo 'Response: ' . $response;
     ?>
- 
-**Send files via url**
-
-    post http://localhost:3000/sendfileurl
-    body :
-    sessionid => sessionid
-    id => phonenumberwithcountrycode@s.whatsapp.net
-    text => caption
-    attachment => file url
 
 # Webhook
 The script support simple webhook to return incoming message and sender number.
