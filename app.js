@@ -78,7 +78,7 @@ app.get('/start/:sessionId', async (req, res) => {
     const { sessionId } = req.params;
     try {
         await startSock(sessionId);
-        res.status(200).send(`Socket started successfully for session ${sessionId}`);
+        res.status(200).send(`STARTED : ${sessionId}`);
     } catch (error) {
         console.error(`Error starting socket for session ${sessionId}`, error);
         res.status(500).send(`Failed to start socket for session ${sessionId}`);
@@ -90,9 +90,9 @@ app.get('/socketstat/:sessionId', (req, res) => {
     const { sessionId } = req.params;
     const session = sessions[sessionId];
     if (session) {
-        res.status(200).send(`Socket is already started for session ${sessionId}`);
+        res.status(200).send(`RUNNING`);
     } else {
-        res.status(404).send(`Socket not started for session ${sessionId}`);
+        res.status(404).send(`STOP`);
     }
 });
 
@@ -103,9 +103,43 @@ app.get('/getqr/:sessionId', (req, res) => {
     if (session && session.qrCodeUrl) {
         res.status(200).send(`<img src="${session.qrCodeUrl}" alt="QR Code for session ${sessionId}" />`);
     } else {
-        res.status(404).send(`QR code not found for session ${sessionId}`);
+        res.status(404).send(`QR code already scanned`);
     }
 });
+
+// GET endpoint to check if a number exists on WhatsApp
+app.get('/checkno/:sessionId/:phone', async (req, res) => {
+    const { sessionId, phone } = req.params;
+	
+	 if (!sessionId) {
+        return res.status(400).send('Missing SessionId');
+    }
+	const session = sessions[sessionId];
+	
+    if (!phone) {
+        return res.status(400).send('Missing WhatsApp number');
+    }
+
+    try {
+        // Check if the number exists on WhatsApp
+        const [result] = await session.sock.onWhatsApp(phone);
+
+        if (result.exists) {
+            res.status(200).json({
+                exists: true,
+                jid: result.jid
+            });
+        } 
+		
+    } catch (error) {
+        console.error('Error checking WhatsApp number:', error);
+        res.status(500).json({
+                exists: false,
+                message: `Number ${phone} is not registered on WhatsApp`
+            });
+    }
+});
+
 
 // Endpoint to send a message using a specific session ID (POST request)
 app.post('/message', async (req, res) => {
@@ -123,6 +157,13 @@ app.post('/message', async (req, res) => {
     }
 
     try {
+        // Check if the number exists on WhatsApp
+        const [result] = await session.sock.onWhatsApp(id);
+        if (!result.exists) {
+            return res.status(404).send(`Number ${id} is not registered on WhatsApp`);
+        }
+
+        // Send the message
         const sentMsg = await session.sock.sendMessage(id, { text });
         res.status(200).send(`Message sent successfully: ${JSON.stringify(sentMsg)}`);
     } catch (error) {
@@ -131,8 +172,7 @@ app.post('/message', async (req, res) => {
     }
 });
 
-
-// Endpoint to send a image message
+// Endpoint to send an image message
 app.post('/sendimageurl', async (req, res) => {
     const { sessionId, id, text, attachment } = req.body;
 
@@ -148,15 +188,20 @@ app.post('/sendimageurl', async (req, res) => {
     }
 
     try {
-		
+        // Check if the number exists on WhatsApp
+        const [result] = await session.sock.onWhatsApp(id);
+        if (!result.exists) {
+            return res.status(404).send(`Number ${id} is not registered on WhatsApp`);
+        }
+
+        // Fetch the image data
         const response = await axios.get(attachment.url, { responseType: 'arraybuffer' });
         const buffer = Buffer.from(response.data, 'binary');
-		let message = { 		
-			image: buffer, 
-			caption: text
-		}
-		
-		
+        let message = {
+            image: buffer,
+            caption: text
+        };
+
         // Send the message with the attachment
         const sentMsg = await session.sock.sendMessage(id, message);
         res.status(200).send(`Message with attachment sent successfully: ${JSON.stringify(sentMsg)}`);
@@ -166,7 +211,8 @@ app.post('/sendimageurl', async (req, res) => {
     }
 });
 
-// Endpoint to send a pdf file
+
+// Endpoint to send a PDF or document file
 app.post('/sendfileurl', async (req, res) => {
     const { sessionId, id, text, attachment } = req.body;
 
@@ -182,6 +228,13 @@ app.post('/sendfileurl', async (req, res) => {
     }
 
     try {
+        // Check if the number exists on WhatsApp
+        const [result] = await session.sock.onWhatsApp(id);
+        if (!result.exists) {
+            return res.status(404).send(`Number ${id} is not registered on WhatsApp`);
+        }
+
+        // Fetch the file data
         const response = await axios.get(attachment.url, { responseType: 'arraybuffer' });
         const buffer = Buffer.from(response.data, 'binary');
 
@@ -206,6 +259,7 @@ app.post('/sendfileurl', async (req, res) => {
         res.status(500).send('Failed to send message with attachment');
     }
 });
+
 
 // Endpoint to set the webhook URL for a specific session ID
 app.post('/set-webhook/:sessionId', (req, res) => {
