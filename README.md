@@ -8,12 +8,17 @@ To change port simply edit app.js change `const port = 3000` to something else
 # API
 **Start socket for a session :**
 
-    get http://localhost:3000/start-socket/sessionId
+    get http://localhost:3000/start/sessionId
 Replace sessionId with unique session. You should start socket for each session to make each sessionId work.
+
+**Check socket status for a session :**
+
+    get http://localhost:3000/socketstat/sessionId
+Replace
 
 **Generate QR-Code :**
 
-    get http://localhost:3000/get-qr-code/sessionId
+    get http://localhost:3000/getqr/sessionId
 
 **Send Message**
 
