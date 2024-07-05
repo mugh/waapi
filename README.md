@@ -19,7 +19,7 @@ Replace sessionId with unique session. You should start socket for each session 
 
     get http://localhost:3000/getqr/sessionId
     
-**GCheck no on whatsapp :**
+**Check no on whatsapp :**
 
     get http://localhost:3000/checkno/sessionId/phonenumberwithcountrycode
 
@@ -122,6 +122,7 @@ php curl example
     id => phonenumberwithcountrycode@s.whatsapp.net
     text => caption
     attachment => file url
+    filename => file name include file format
 
     php curl example   
 
