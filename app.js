@@ -1,9 +1,10 @@
 const express = require('express');
-const { makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
+const { makeWASocket, useMultiFileAuthState, DisconnectReason, MessageType, Mimetype, MessageOptions } = require('@whiskeysockets/baileys');
 const QRCode = require('qrcode');
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
+const mime = require('mime-types');
 
 const app = express();
 const port = 3000;
@@ -73,23 +74,34 @@ const startSock = async (sessionId) => {
 };
 
 // Endpoint to start the socket for a given session ID and get QR code
-app.get('/start-socket/:sessionId', async (req, res) => {
+app.get('/start/:sessionId', async (req, res) => {
     const { sessionId } = req.params;
     try {
         await startSock(sessionId);
-        res.send(`Socket started successfully for session ${sessionId}`);
+        res.status(200).send(`Socket started successfully for session ${sessionId}`);
     } catch (error) {
         console.error(`Error starting socket for session ${sessionId}`, error);
         res.status(500).send(`Failed to start socket for session ${sessionId}`);
     }
 });
 
+// Endpoint to check if a socket is already started for a given session ID
+app.get('/socketstat/:sessionId', (req, res) => {
+    const { sessionId } = req.params;
+    const session = sessions[sessionId];
+    if (session) {
+        res.status(200).send(`Socket is already started for session ${sessionId}`);
+    } else {
+        res.status(404).send(`Socket not started for session ${sessionId}`);
+    }
+});
+
 // Endpoint to get the QR code for a specific session ID
-app.get('/get-qr-code/:sessionId', (req, res) => {
+app.get('/getqr/:sessionId', (req, res) => {
     const { sessionId } = req.params;
     const session = sessions[sessionId];
     if (session && session.qrCodeUrl) {
-        res.send(`<img src="${session.qrCodeUrl}" alt="QR Code for session ${sessionId}" />`);
+        res.status(200).send(`<img src="${session.qrCodeUrl}" alt="QR Code for session ${sessionId}" />`);
     } else {
         res.status(404).send(`QR code not found for session ${sessionId}`);
     }
@@ -112,10 +124,86 @@ app.post('/message', async (req, res) => {
 
     try {
         const sentMsg = await session.sock.sendMessage(id, { text });
-        res.send(`Message sent successfully: ${JSON.stringify(sentMsg)}`);
+        res.status(200).send(`Message sent successfully: ${JSON.stringify(sentMsg)}`);
     } catch (error) {
         console.error(`Error sending message for session ${sessionId}`, error);
         res.status(500).send('Failed to send message');
+    }
+});
+
+
+// Endpoint to send a image message
+app.post('/sendimageurl', async (req, res) => {
+    const { sessionId, id, text, attachment } = req.body;
+
+    console.log('Received request:', req.body);
+
+    if (!sessionId || !id || !attachment) {
+        return res.status(400).send('Missing sessionId, id, or attachment');
+    }
+
+    const session = sessions[sessionId];
+    if (!session) {
+        return res.status(404).send(`Session ${sessionId} not found`);
+    }
+
+    try {
+		
+        const response = await axios.get(attachment.url, { responseType: 'arraybuffer' });
+        const buffer = Buffer.from(response.data, 'binary');
+		let message = { 		
+			image: buffer, 
+			caption: text
+		}
+		
+		
+        // Send the message with the attachment
+        const sentMsg = await session.sock.sendMessage(id, message);
+        res.status(200).send(`Message with attachment sent successfully: ${JSON.stringify(sentMsg)}`);
+    } catch (error) {
+        console.error(`Error sending message with attachment for session ${sessionId}`, error);
+        res.status(500).send('Failed to send message with attachment');
+    }
+});
+
+// Endpoint to send a pdf file
+app.post('/sendfileurl', async (req, res) => {
+    const { sessionId, id, text, attachment } = req.body;
+
+    console.log('Received request:', req.body);
+
+    if (!sessionId || !id || !attachment) {
+        return res.status(400).send('Missing sessionId, id, or attachment');
+    }
+
+    const session = sessions[sessionId];
+    if (!session) {
+        return res.status(404).send(`Session ${sessionId} not found`);
+    }
+
+    try {
+        const response = await axios.get(attachment.url, { responseType: 'arraybuffer' });
+        const buffer = Buffer.from(response.data, 'binary');
+
+        // Determine the file extension from the attachment's fileName
+        const fileExtension = attachment.fileName.split('.').pop();
+
+        // Determine the mimetype dynamically based on the file extension
+        const mimeType = `application/${fileExtension}`;
+
+        let message = {
+            document: buffer,
+            caption: text,
+            mimetype: mimeType,
+            fileName: attachment.fileName
+        };
+
+        // Send the message with the attachment
+        const sentMsg = await session.sock.sendMessage(id, message);
+        res.status(200).send(`Message with attachment sent successfully: ${JSON.stringify(sentMsg)}`);
+    } catch (error) {
+        console.error(`Error sending message with attachment for session ${sessionId}`, error);
+        res.status(500).send('Failed to send message with attachment');
     }
 });
 
@@ -131,7 +219,7 @@ app.post('/set-webhook/:sessionId', (req, res) => {
     webhooks[sessionId] = webhookUrl;
     saveWebhooks();
 
-    res.send(`Webhook URL set for session ${sessionId}`);
+    res.status(200).send(`Webhook URL set for session ${sessionId}`);
 });
 
 // Endpoint to get the webhook URL for a specific session ID
@@ -143,7 +231,7 @@ app.get('/get-webhook/:sessionId', (req, res) => {
         return res.status(404).send(`Webhook URL not found for session ${sessionId}`);
     }
 
-    res.send({ sessionId, webhookUrl });
+    res.status(200).send({ sessionId, webhookUrl });
 });
 
 // Webhook endpoint to listen for new incoming messages (for testing purposes)
