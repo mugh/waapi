@@ -77,7 +77,7 @@ php curl example
     text => caption
     attachment => image url
     
-php curl example   
+   php curl example   
 
     <?php
     $sessionId = 'sessionId';
@@ -125,7 +125,7 @@ php curl example
     attachment => file url
     filename => file name include file format
 
-    php curl example   
+   php curl example   
 
     <?php
     $sessionId = 'sessionId';
