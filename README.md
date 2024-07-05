@@ -14,11 +14,14 @@ Replace sessionId with unique session. You should start socket for each session 
 **Check socket status for a session :**
 
     get http://localhost:3000/socketstat/sessionId
-Replace
-
+    
 **Generate QR-Code :**
 
     get http://localhost:3000/getqr/sessionId
+    
+**GCheck no on whatsapp :**
+
+    get http://localhost:3000/checkno/sessionId/phonenumberwithcountrycode
 
 **Send Message**
 
@@ -63,6 +66,24 @@ php curl example
 	// Close cURL session
 	curl_close($ch);
 	?>
+
+**Send image via url**
+
+    post http://localhost:3000/sendimageurl
+    body :
+    sessionid => sessionid
+    id => phonenumberwithcountrycode@s.whatsapp.net
+    text => caption
+    attachment => image url
+
+**Send files via url**
+
+    post http://localhost:3000/sendfileurl
+    body :
+    sessionid => sessionid
+    id => phonenumberwithcountrycode@s.whatsapp.net
+    text => caption
+    attachment => file url
 
 # Webhook
 The script support simple webhook to return incoming message and sender number.
