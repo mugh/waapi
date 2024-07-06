@@ -27,27 +27,34 @@ const saveWebhooks = () => {
 
 // Function to initialize a socket connection for a given session ID
 const startSock = async (sessionId) => {
-    const { state, saveCreds } = await useMultiFileAuthState(`./sessions/${sessionId}`);
+    // Construct the session file path
+    const sessionFilePath = `./sessions/${sessionId}`;
+
+    const { state, saveCreds } = await useMultiFileAuthState(sessionFilePath);
 
     const sock = makeWASocket({
         auth: state,
-        printQRInTerminal: false // Disable printing the QR code in the terminal
+        printQRInTerminal: false
     });
 
-    // Save credentials whenever they are updated
     sock.ev.on('creds.update', saveCreds);
 
-    // Handle QR code generation and display
     sock.ev.on('connection.update', async (update) => {
         const { connection, qr, lastDisconnect } = update;
         if (connection === 'close') {
             const shouldReconnect = (lastDisconnect.error.output.statusCode !== DisconnectReason.loggedOut);
-            console.log(`Connection closed for session ${sessionId}. Reconnecting...`, shouldReconnect);
+            console.log(`Connection closed for session ${sessionId}. Reconnecting: ${shouldReconnect}`);
             if (shouldReconnect) {
                 startSock(sessionId);
             }
         } else if (connection === 'open') {
             console.log(`Connection opened for session ${sessionId}`);
+
+            // Check if the session was restored from a file
+            if (fs.existsSync(sessionFilePath)) {
+                console.log(`Session ${sessionId} restored from file.`);
+            }
+
         } else if (qr) {
             console.log(`QR code for session ${sessionId}: ${qr}`);
             const qrCodeUrl = await QRCode.toDataURL(qr);
@@ -72,6 +79,27 @@ const startSock = async (sessionId) => {
     console.log(`Socket initialized for session ${sessionId}`);
     sessions[sessionId] = { sock, qrCodeUrl: null };
 };
+
+// Function to restore sessions on startup
+const restoreSessions = async () => {
+    try {
+        const sessionsDir = './sessions'; // Path to your sessions directory
+        if (fs.existsSync(sessionsDir)) {
+            const sessionFiles = fs.readdirSync(sessionsDir);
+
+            for (const sessionId of sessionFiles) {
+                console.log(`Attempting to restore session: ${sessionId}`);
+                await startSock(sessionId);
+            }
+        } else {
+            console.log("Sessions directory not found. No sessions to restore.");
+        }
+    } catch (error) {
+        console.error('Error restoring sessions:', error);
+    }
+};
+
+restoreSessions();
 
 // Endpoint to start the socket for a given session ID and get QR code
 app.get('/start/:sessionId', async (req, res) => {
@@ -110,12 +138,12 @@ app.get('/getqr/:sessionId', (req, res) => {
 // GET endpoint to check if a number exists on WhatsApp
 app.get('/checkno/:sessionId/:phone', async (req, res) => {
     const { sessionId, phone } = req.params;
-	
+
 	 if (!sessionId) {
         return res.status(400).send('Missing SessionId');
     }
 	const session = sessions[sessionId];
-	
+
     if (!phone) {
         return res.status(400).send('Missing WhatsApp number');
     }
@@ -129,8 +157,8 @@ app.get('/checkno/:sessionId/:phone', async (req, res) => {
                 exists: true,
                 jid: result.jid
             });
-        } 
-		
+        }
+
     } catch (error) {
         console.error('Error checking WhatsApp number:', error);
         res.status(500).json({
