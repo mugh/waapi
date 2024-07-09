@@ -1,11 +1,9 @@
 {
-    "scripts": {
-        "run": "node app.js"
-    },
   "dependencies": {
     "@hapi/boom": "^10.0.1",
     "@whiskeysockets/baileys": "^6.7.5",
     "axios": "^1.7.2",
+    "crypto": "^1.0.1",
     "express": "^4.19.2",
     "mime-types": "^2.1.35",
     "open": "^10.1.0",

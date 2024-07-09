@@ -5,6 +5,7 @@ const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
 const mime = require('mime-types');
+const crypto = require('crypto');
 
 const app = express();
 const port = 3000;
@@ -12,6 +13,36 @@ const port = 3000;
 app.use(express.json());
 
 let sessions = {};
+
+// Load API keys from a file (if it exists)
+const apiKeysFilePath = path.join(__dirname, 'api_keys.json');
+let apiKeys = {};
+if (fs.existsSync(apiKeysFilePath)) {
+    apiKeys = JSON.parse(fs.readFileSync(apiKeysFilePath, 'utf-8'));
+}
+
+// Save API keys to a file
+const saveApiKeys = () => {
+    fs.writeFileSync(apiKeysFilePath, JSON.stringify(apiKeys, null, 2));
+};
+
+// Middleware to check API key
+const checkApiKey = (req, res, next) => {
+    const apiKey = req.headers['x-api-key'];
+    const { sessionId } = req.params;
+
+    if (!apiKey){
+		return res.status(403).send('You not include apikey');
+	}
+	else if(!sessionId){
+		return res.status(403).send('You not include sessionid');
+	}
+	else if(apiKeys[sessionId] !== apiKey) {
+        return res.status(403).send(`Forbidden: Invalid API key for ${sessionId} with apikey ${apiKey}`);
+    }
+
+    next();
+};
 
 // Middleware to restrict access to localhost
 const restrictToLocalhost = (req, res, next) => {
@@ -111,7 +142,7 @@ const restoreSessions = async () => {
 restoreSessions();
 
 // Endpoint to start the socket for a given session ID and get QR code
-app.get('/start/:sessionId', restrictToLocalhost, async (req, res) => {
+app.get('/start/:sessionId', checkApiKey, async (req, res) => {
     const { sessionId } = req.params;
     try {
         await startSock(sessionId);
@@ -134,18 +165,20 @@ app.get('/socketstat/:sessionId', (req, res) => {
 });
 
 // Endpoint to get the QR code for a specific session ID
-app.get('/getqr/:sessionId', (req, res) => {
+app.get('/getqr/:sessionId', checkApiKey, (req, res) => {
     const { sessionId } = req.params;
     const session = sessions[sessionId];
+	//console.log(`Request received for session ID: ${sessionId}`);
+    //console.log(`Session data: ${JSON.stringify(session)}`);
     if (session && session.qrCodeUrl) {
         res.status(200).send(`<img src="${session.qrCodeUrl}" alt="QR Code for session ${sessionId}" />`);
     } else {
-        res.status(404).send(`QR code already scanned`);
+        res.status(404).send(`QR code already scanned or socket not RUNNING`);
     }
 });
 
 // GET endpoint to check if a number exists on WhatsApp
-app.get('/checkno/:sessionId/:phone', restrictToLocalhost, async (req, res) => {
+app.get('/checkno/:sessionId/:phone', checkApiKey, async (req, res) => {
     const { sessionId, phone } = req.params;
 
 	 if (!sessionId) {
@@ -179,7 +212,7 @@ app.get('/checkno/:sessionId/:phone', restrictToLocalhost, async (req, res) => {
 
 
 // Endpoint to send a message using a specific session ID (POST request)
-app.post('/message', restrictToLocalhost, async (req, res) => {
+app.post('/message/:sessionId', checkApiKey, async (req, res) => {
     const { sessionId, id, text } = req.body; // Extract parameters from req.body
 
     console.log('Received request:', req.body); // Log the request body
@@ -210,7 +243,7 @@ app.post('/message', restrictToLocalhost, async (req, res) => {
 });
 
 // Endpoint to send an image message
-app.post('/sendimageurl', restrictToLocalhost, async (req, res) => {
+app.post('/sendimageurl/:sessionId', checkApiKey, async (req, res) => {
     const { sessionId, id, text, attachment } = req.body;
 
     console.log('Received request:', req.body);
@@ -250,7 +283,7 @@ app.post('/sendimageurl', restrictToLocalhost, async (req, res) => {
 
 
 // Endpoint to send a PDF or document file
-app.post('/sendfileurl', restrictToLocalhost, async (req, res) => {
+app.post('/sendfileurl/:sessionId', checkApiKey, async (req, res) => {
     const { sessionId, id, text, attachment } = req.body;
 
     console.log('Received request:', req.body);
@@ -299,7 +332,7 @@ app.post('/sendfileurl', restrictToLocalhost, async (req, res) => {
 
 
 // Endpoint to set the webhook URL for a specific session ID
-app.post('/set-webhook/:sessionId', restrictToLocalhost, (req, res) => {
+app.post('/set-webhook/:sessionId', checkApiKey, (req, res) => {
     const { sessionId } = req.params;
     const { webhookUrl } = req.body;
 
@@ -314,7 +347,7 @@ app.post('/set-webhook/:sessionId', restrictToLocalhost, (req, res) => {
 });
 
 // Endpoint to get the webhook URL for a specific session ID
-app.get('/get-webhook/:sessionId', (req, res) => {
+app.get('/get-webhook/:sessionId', checkApiKey, (req, res) => {
     const { sessionId } = req.params;
     const webhookUrl = webhooks[sessionId];
 
@@ -326,12 +359,52 @@ app.get('/get-webhook/:sessionId', (req, res) => {
 });
 
 // Webhook endpoint to listen for new incoming messages (for testing purposes)
-app.post('/webhook/new-message', restrictToLocalhost, (req, res) => {
+app.post('/webhook/new-message', checkApiKey, (req, res) => {
     const { sessionId, message } = req.body;
     console.log(`Webhook received new message for session ${sessionId}:`, message);
     // Implement your webhook handling logic here to process incoming messages
 
     res.status(200).send('Webhook received new message');
+});
+
+// Endpoint to generate a new API key for a specific session ID
+app.post('/genapi/:sessionId', restrictToLocalhost, (req, res) => {
+    const { sessionId } = req.params;
+
+    // Generate a new API key
+    const apiKey = crypto.randomBytes(32).toString('hex');
+
+    // Store the API key for the session
+    apiKeys[sessionId] = apiKey;
+    saveApiKeys();
+
+    res.status(200).send({ sessionId, apiKey });
+});
+
+// Endpoint to get the API key for a specific session ID
+app.get('/getapi/:sessionId', restrictToLocalhost, (req, res) => {
+    const { sessionId } = req.params;
+    const apiKey = apiKeys[sessionId];
+
+    if (!apiKey) {
+        return res.status(404).send(`API key not found for session ${sessionId}`);
+    }
+
+    res.status(200).send({ apiKey });
+});
+
+// Endpoint to delete the API key for a specific session ID
+app.delete('/delapi/:sessionId', restrictToLocalhost, (req, res) => {
+    const { sessionId } = req.params;
+
+    if (!apiKeys[sessionId]) {
+        return res.status(404).send(`API key not found for session ${sessionId}`);
+    }
+
+    delete apiKeys[sessionId];
+    saveApiKeys();
+
+    res.status(200).send(`API key deleted for session ${sessionId}`);
 });
 
 // Start the Express server
