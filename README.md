@@ -210,3 +210,7 @@ php curl example
 **Check webhook url already setup for a sessionid**
 
     get http://localhost:3000/get-webhook/sessionId
+
+# Localhost restriction
+Most of the coded protected to be access only from localhost. to modified it, remove 'restrictToLocalhost' function from each endpoint.
+This script meant to be integrated to other application to be use as whatsapp notification or robots.
