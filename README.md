@@ -36,7 +36,6 @@ Replace sessionId with unique session. You should start socket for each session 
 **Check socket status for a session :**
 
     get http://localhost:3000/socketstat/sessionId
-    header => 'x-api-key'
     
 **Generate QR-Code :**
 
