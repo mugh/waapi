@@ -10,7 +10,7 @@ To change port simply edit app.js change `const port = 3000` to something else
 
 # API
 **APIKEY** 
-Apikey realated only able to be executed from localhost
+Apikey related only able to be executed from localhost
 
 **Generate api key for session id**
 
