@@ -13,6 +13,15 @@ app.use(express.json());
 
 let sessions = {};
 
+// Middleware to restrict access to localhost
+const restrictToLocalhost = (req, res, next) => {
+    const allowedIps = ['::1', '127.0.0.1', '::ffff:127.0.0.1']; // IPv6 and IPv4 localhost addresses
+    if (!allowedIps.includes(req.ip)) {
+        return res.status(403).send('Forbidden: Access allowed only from localhost');
+    }
+    next();
+};
+
 // Load webhook URLs from a file (if it exists)
 const webhookFilePath = path.join(__dirname, 'webhooks.json');
 let webhooks = {};
@@ -102,7 +111,7 @@ const restoreSessions = async () => {
 restoreSessions();
 
 // Endpoint to start the socket for a given session ID and get QR code
-app.get('/start/:sessionId', async (req, res) => {
+app.get('/start/:sessionId', restrictToLocalhost, async (req, res) => {
     const { sessionId } = req.params;
     try {
         await startSock(sessionId);
@@ -136,7 +145,7 @@ app.get('/getqr/:sessionId', (req, res) => {
 });
 
 // GET endpoint to check if a number exists on WhatsApp
-app.get('/checkno/:sessionId/:phone', async (req, res) => {
+app.get('/checkno/:sessionId/:phone', restrictToLocalhost, async (req, res) => {
     const { sessionId, phone } = req.params;
 
 	 if (!sessionId) {
@@ -170,7 +179,7 @@ app.get('/checkno/:sessionId/:phone', async (req, res) => {
 
 
 // Endpoint to send a message using a specific session ID (POST request)
-app.post('/message', async (req, res) => {
+app.post('/message', restrictToLocalhost, async (req, res) => {
     const { sessionId, id, text } = req.body; // Extract parameters from req.body
 
     console.log('Received request:', req.body); // Log the request body
@@ -201,7 +210,7 @@ app.post('/message', async (req, res) => {
 });
 
 // Endpoint to send an image message
-app.post('/sendimageurl', async (req, res) => {
+app.post('/sendimageurl', restrictToLocalhost, async (req, res) => {
     const { sessionId, id, text, attachment } = req.body;
 
     console.log('Received request:', req.body);
@@ -241,7 +250,7 @@ app.post('/sendimageurl', async (req, res) => {
 
 
 // Endpoint to send a PDF or document file
-app.post('/sendfileurl', async (req, res) => {
+app.post('/sendfileurl', restrictToLocalhost, async (req, res) => {
     const { sessionId, id, text, attachment } = req.body;
 
     console.log('Received request:', req.body);
@@ -290,7 +299,7 @@ app.post('/sendfileurl', async (req, res) => {
 
 
 // Endpoint to set the webhook URL for a specific session ID
-app.post('/set-webhook/:sessionId', (req, res) => {
+app.post('/set-webhook/:sessionId', restrictToLocalhost, (req, res) => {
     const { sessionId } = req.params;
     const { webhookUrl } = req.body;
 
@@ -317,7 +326,7 @@ app.get('/get-webhook/:sessionId', (req, res) => {
 });
 
 // Webhook endpoint to listen for new incoming messages (for testing purposes)
-app.post('/webhook/new-message', (req, res) => {
+app.post('/webhook/new-message', restrictToLocalhost, (req, res) => {
     const { sessionId, message } = req.body;
     console.log(`Webhook received new message for session ${sessionId}:`, message);
     // Implement your webhook handling logic here to process incoming messages
