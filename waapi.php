@@ -239,4 +239,21 @@ function checkwebhook($url, $sessionid, $apikey) {
     }
     curl_close($ch);
 }
+
+
+//check wa no
+function onwa($url, $sessionid, $phoneno, $apikey) {
+    $endpointurl = "$url/checkno/$sessionid/$phoneno";
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, $endpointurl);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, ["x-api-key: $apikey"]);
+    $response = curl_exec($ch);
+    if (curl_errno($ch)) {
+        echo "Error:" . curl_error($ch);
+    } else {
+        echo $response;
+    }
+    curl_close($ch);
+}
 ?>
