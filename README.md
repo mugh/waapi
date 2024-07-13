@@ -15,11 +15,12 @@ Apikey related only able to be executed from localhost
 **Generate api key for session id**
 
 	post http://localhost:3000/genapi/sessionid
-    will return => 'x-api-key'
+    will create => 'x-api-key'
 
 **Get api key for session id**
 
     get http://localhost:3000/getapi/sessionId
+    will show => 'x-api-key'
     
 **Delete api key for session id**
 
