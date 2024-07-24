@@ -1,7 +1,7 @@
 <?php
 include 'waapi.php';
 
-$id="mugh";
+$id="myid";
 $url="http://localhost:3000";
 $apikey = getapi($url, $id);
 //echo $apikey;
