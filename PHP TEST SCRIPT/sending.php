@@ -1,12 +1,12 @@
 <?php
 include 'waapi.php';
 
-$id="mugh";
+$id="myid";
 $url="http://localhost:3000";
 $apikey = getapi($url, $id);
 //echo $apikey;
 
-$number="6282129080941";
+$number="6282124987943";
 $textcontent="aku disini untukmu,
 coba kamu cari tahu";
 $caption="attachment buat kamu";
