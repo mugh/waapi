@@ -111,6 +111,31 @@ function start($url, $sessionid, $apikey)
     return $data;
 
 }
+//delete sessionid (also delete its api key)
+function delsession($url, $sessionid, $apikey)
+{
+    $curl = curl_init();
+
+    curl_setopt_array($curl, array(
+        CURLOPT_URL => "$url/sessions/$sessionid",
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_ENCODING => '',
+        CURLOPT_MAXREDIRS => 10,
+        CURLOPT_TIMEOUT => 0,
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
+        CURLOPT_CUSTOMREQUEST => 'DELETE',
+        CURLOPT_HTTPHEADER => array(
+            "x-api-key: $apikey"
+        ) ,
+    ));
+
+    $response = curl_exec($curl);
+    $data = json_decode($response, true);
+
+    curl_close($curl);
+    return $data;
+}
 //get qr for sessionid
 function getqr($url, $sessionid, $apikey)
 {
@@ -222,9 +247,10 @@ function image($url, $sessionid, $number, $caption, $imageurl, $apikey)
     ));
 
     $response = curl_exec($curl);
+    $data = json_decode($response, true);
 
     curl_close($curl);
-    echo $response;
+    return $data;
 }
 //sending file message by url
 function sendfile($url, $sessionid, $number, $caption, $fileurl, $apikey)
@@ -256,9 +282,10 @@ function sendfile($url, $sessionid, $number, $caption, $fileurl, $apikey)
     ));
 
     $response = curl_exec($curl);
+    $data = json_decode($response, true);
 
     curl_close($curl);
-    echo $response;
+    return $data;
 }
 //==================================================================
 //setup webhook
@@ -287,9 +314,10 @@ function setwebhook($url, $sessionid, $webhookurl, $apikey)
     ));
 
     $response = curl_exec($curl);
+    $data = json_decode($response, true);
 
     curl_close($curl);
-    echo $response;
+    return $data;
 }
 //get webhook for a session ID
 function checkwebhook($url, $sessionid, $apikey)
@@ -312,9 +340,10 @@ function checkwebhook($url, $sessionid, $apikey)
     ));
 
     $response = curl_exec($curl);
+    $data = json_decode($response, true);
 
     curl_close($curl);
-    echo $response;
+    return $data;
 }
 
 //check wa no
@@ -338,8 +367,9 @@ function onwa($url, $sessionid, $phoneno, $apikey)
     ));
 
     $response = curl_exec($curl);
+    $data = json_decode($response, true);
 
     curl_close($curl);
-    echo $response;
+    return $data;
 }
 ?>
