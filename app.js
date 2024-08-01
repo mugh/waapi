@@ -22,7 +22,6 @@ const fs = require('fs/promises');
 
 const app = express();
 const port = 3000;
-const agentname = 'waapi-mugh';
 
 app.use(express.json());
 
@@ -156,7 +155,7 @@ const startSock = async (sessionId) => {
     const sock = makeWASocket({
         auth: state,
         printQRInTerminal: false,
-        browser: `waapi-mugh`
+        browser: ['waapi-mugh', 'Chrome', '100'] 
     });
 
     // Initialize connection state for the session
