@@ -179,12 +179,12 @@ const startSock = async (sessionId) => {
 
         if (connection === 'close') {
             // Check if the disconnection was manual
+			sessions[sessionId].isConnected = false;
             if (manualDisconnect) {
                 console.log(`Connection closed for session ${sessionId} due to manual disconnect.`);
-                sessions[sessionId].isConnected = false; // Update connection state
                 return; // Exit if it was a manual disconnect
             }
-            sessions[sessionId].isConnected = false;
+            
             const shouldReconnect = (lastDisconnect && lastDisconnect.error.output.statusCode !== DisconnectReason.loggedOut);
             console.log(`Connection closed for session ${sessionId}. Reconnecting: ${shouldReconnect}`);
             if (shouldReconnect) startSock(sessionId);
