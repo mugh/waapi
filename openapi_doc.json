@@ -1,8 +1,8 @@
 {
   "openapi": "3.0.0",
   "info": {
-    "title": "WAAPI-MUGH",
-    "description": "API for WhatsApp using bailey",
+    "title": "WAAPI_mugh",
+    "description": "API WhatsApp using bailey",
     "version": "1.0.0"
   },
   "servers": [
@@ -50,6 +50,77 @@
           },
           "500": {
             "description": "Failed to start socket for session"
+          }
+        }
+      }
+    },
+    "/sessions/{sessionId}": {
+      "delete": {
+        "summary": "Delete a session by session ID",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "sessionId",
+            "in": "path",
+            "required": true,
+            "description": "The ID of the session to delete",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully deleted the session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "Session {sessionId} deleted successfully"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Session not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "example": "Session {sessionId} not found"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Failed to delete the session file",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "example": "Failed to delete session file"
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }

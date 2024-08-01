@@ -11,9 +11,33 @@ const fs = require('fs/promises');
 
 const app = express();
 const port = 3000;
-const agentname = "waapi-mugh";
+const agentname = 'waapi-mugh';
 
 app.use(express.json());
+
+const deleteSession = async (sessionId) => {
+    const sessionFilePath = path.join(__dirname, 'sessions', sessionId);
+
+    try {
+        // Remove the session from the sessions object
+        delete sessions[sessionId];
+
+        // Check if the session file exists
+        await fs.access(sessionFilePath);
+
+        // Remove the directory and its contents
+        await fs.rmdir(sessionFilePath, { recursive: true }); // Use recursive to delete non-empty directories
+
+        res.status(200).json({ message: `Session ${sessionId} deleted successfully` });
+    } catch (error) {
+        if (error.code === 'ENOENT') {
+            res.status(404).json({ error: `Session ${sessionId} not found` });
+        } else {
+            console.error(`Failed to delete session file for ${sessionId}:`, error);
+            res.status(500).json({ error: 'Failed to delete session file' });
+        }
+    }
+};
 
 // Rate limiting middleware
 const limiter = rateLimit({
@@ -103,7 +127,7 @@ const checkSystemApiKey = (req, res, next) => {
 const startSock = async (sessionId) => {
     const sessionFilePath = `./sessions/${sessionId}`;
     const { state, saveCreds } = await useMultiFileAuthState(sessionFilePath);
-    const sock = makeWASocket({ auth: state, printQRInTerminal: false, name:agentname });
+    const sock = makeWASocket({ auth: state, printQRInTerminal: false, browser: `waapi-mugh` });
 	
 	// Initialize connection state for the session
     sessions[sessionId] = { sock, qrCodeUrl: null, isConnected: false };
@@ -123,7 +147,7 @@ const startSock = async (sessionId) => {
 				sessions[sessionId].isConnected = false; // Update connection state
 				return; // Exit if it was a manual disconnect
 			}
-
+			sessions[sessionId].isConnected = false;
 			const shouldReconnect = (lastDisconnect && lastDisconnect.error.output.statusCode !== DisconnectReason.loggedOut);
 			console.log(`Connection closed for session ${sessionId}. Reconnecting: ${shouldReconnect}`);
 			if (shouldReconnect) startSock(sessionId);
@@ -205,6 +229,45 @@ app.post('/sessions/:sessionId/start', checkApiKey, async (req, res) => {
     } catch (error) {
         console.error(`Error starting socket for session ${sessionId}`, error);
         res.status(500).json({ error: `Failed to start socket for session ${sessionId}` });
+    }
+});
+
+// Endpoint to delete a session by session ID
+app.delete('/sessions/:sessionId', checkApiKey, async (req, res) => {
+const { sessionId } = req.params;
+
+    // Check if the session exists
+    if (!sessions[sessionId]) {
+        return res.status(404).json({ error: `Session ${sessionId} not found` });
+    }
+
+    // Close the socket if it exists
+    const sock = sessions[sessionId].sock;
+    if (sock) {
+        sock.end(); // Close the socket connection
+    }
+
+    // Remove the session from the sessions object
+    delete sessions[sessionId];
+
+    // Define the path to the session directory
+    const sessionDirPath = path.join(__dirname, 'sessions', sessionId);
+
+    try {
+        // Check if the session directory exists
+        await fs.access(sessionDirPath);
+
+        // Remove the directory and its contents
+        await fs.rmdir(sessionDirPath, { recursive: true }); // Use recursive to delete non-empty directories
+
+        res.status(200).json({ message: `Session ${sessionId} deleted successfully` });
+    } catch (error) {
+        if (error.code === 'ENOENT') {
+            return res.status(404).json({ error: `Session ${sessionId} not found` });
+        } else {
+            console.error(`Failed to delete session directory for ${sessionId}:`, error);
+            return res.status(500).json({ error: 'Failed to delete session directory' });
+        }
     }
 });
 
