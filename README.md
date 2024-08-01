@@ -2,97 +2,19 @@
 # What it is
 A very simple Node js script for whatsapp api using bailey, support multi session. 
 
+Changelog 2-8-2024
+-The script now following restful API.
+-The socket will be close after one minutes no qr scan and shall be re-start-ed to be able to scan new QR.
+-The apikey management now have another apikey protection called system api key. it will be generated the first time script start and saved in system_api_key.json
+-openapi documentation now avalilable to be use with postman or swagger
+-adding ratelimiter for api call
 
 # Installation
 donwload or clone the files. run `yarn` and then `node app.js` the server will run in port 3000.
 To change port simply edit app.js change `const port = 3000` to something else
 
-
 # API
-**APIKEY** 
-Apikey related only able to be executed from localhost
-
-**Generate api key for session id**
-
-	post http://localhost:3000/genapi/sessionid
-    will create => 'x-api-key'
-
-**Get api key for session id**
-
-    get http://localhost:3000/getapi/sessionId
-    will show => 'x-api-key'
-    
-**Delete api key for session id**
-
-    get http://localhost:3000/delapi/sessionId
- 
- ==============================
-
-**Start socket for a session :**
-
-    get http://localhost:3000/start/sessionId
-    header => 'x-api-key'
-Replace sessionId with unique session. You should start socket for each session to make each sessionId work.
-
-**Check socket status for a session :**
-
-    get http://localhost:3000/socketstat/sessionId
-    
-**Generate QR-Code :**
-
-    get http://localhost:3000/getqr/sessionId
-    header => 'x-api-key'
-    
-**Check no on whatsapp :**
-
-    get http://localhost:3000/checkno/sessionId/phonenumberwithcountrycode
-    header => 'x-api-key'
-
-**Send Message**
-
-    post http://localhost:3000/message/sessionid
-    header => 'x-api-key'
-    body :
-    sessionid => sessionid
-    id => phonenumberwithcountrycode@s.whatsapp.net
-    text => message content
-    
-**Send image via url**
-
-    post http://localhost:3000/sendimageurl/sessionid
-    header => 'x-api-key'
-    body :
-    sessionid => sessionid
-    id => phonenumberwithcountrycode@s.whatsapp.net
-    text => caption
-    attachment => image url
-    
-**Send files via url**
-
-    post http://localhost:3000/sendfileurl/sessionid
-    header => 'x-api-key'
-    body :
-    sessionid => sessionid
-    id => phonenumberwithcountrycode@s.whatsapp.net
-    text => caption
-    attachment => file url
-    filename => file name include file format
-
-
-# Webhook
-The script support simple webhook to return incoming message and sender number.
-
-**Set webhook for session id**
-
-    post http://localhost:3000/set-webhook/sessionid
-    header => 'x-api-key'
-    body:
-    webhookUrl => webhook url
-
-**Check webhook url already setup for a sessionid**
-
-    get http://localhost:3000/get-webhook/sessionId
-    header => 'x-api-key'
+use openapi_doc.json in postman or swagger to see all available endpoint
 
 # Example
 see waapi.php for complete php function of all API endpoint.
