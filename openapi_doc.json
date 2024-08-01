@@ -27,7 +27,7 @@
   "paths": {
     "/sessions/{sessionId}/start": {
       "post": {
-        "summary": "Start a new socket for a given session ID. Socket Will disconnect after 5 minutes When no QR scan. You should post a new start socket",
+        "summary": "Start a new socket for a given session ID. Socket Will disconnect after 1 minutes When no QR scan. You should post a new start socket",
         "security": [
           {
             "ApiKeyAuth": []
