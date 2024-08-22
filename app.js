@@ -1,15 +1,14 @@
+require('dotenv').config(); // Load environment variables from .env file
+
 const express = require('express');
+const mongoose = require('mongoose');
 const {
     makeWASocket,
     useMultiFileAuthState,
     DisconnectReason,
-    MessageType,
-    Mimetype,
-    MessageOptions
 } = require('@whiskeysockets/baileys');
 const QRCode = require('qrcode');
 const axios = require('axios');
-const path = require('path');
 const crypto = require('crypto');
 const {
     body,
@@ -17,43 +16,115 @@ const {
     validationResult
 } = require('express-validator');
 const rateLimit = require('express-rate-limit');
-const mime = require('mime-types');
-const fs = require('fs/promises');
 
 const app = express();
 const port = 3000;
 
 app.use(express.json());
 
-const deleteSession = async (sessionId) => {
-    const sessionFilePath = path.join(__dirname, 'sessions', sessionId);
+// MongoDB connection
+mongoose.connect(process.env.MONGODB_URI)
+    .then(() => console.log('MongoDB connected successfully'))
+    .catch(err => console.error('MongoDB connection error:', err));
 
+// MongoDB schemas
+const apiKeySchema = new mongoose.Schema({
+    sessionId: String,
+    apiKey: String
+});
+
+const webhookSchema = new mongoose.Schema({
+    sessionId: String,
+    webhookUrl: String
+});
+
+const systemApiKeySchema = new mongoose.Schema({
+    key: String
+});
+
+const sessionSchema = new mongoose.Schema({
+    sessionId: String,
+    qrCodeUrl: String,
+    isConnected: Boolean
+});
+
+const ApiKey = mongoose.model('ApiKey', apiKeySchema);
+const Webhook = mongoose.model('Webhook', webhookSchema);
+const SystemApiKey = mongoose.model('SystemApiKey', systemApiKeySchema);
+const Session = mongoose.model('Session', sessionSchema);
+
+let sessions = {};
+let SYSTEM_API_KEY;
+let apiKeys = {};
+let webhooks = {};
+
+const ALGORITHM = 'aes-256-cbc';
+const SECRET_KEY = Buffer.from(process.env.SECRET_KEY, 'hex'); // Convert hex string to buffer
+const IV_LENGTH = 16; // For AES, this is always 16
+
+// Encrypt the data
+const encrypt = (text) => {
+    const iv = crypto.randomBytes(IV_LENGTH); // Generate random IV
+    const cipher = crypto.createCipheriv(ALGORITHM, SECRET_KEY, iv);
+    let encrypted = cipher.update(text);
+    encrypted = Buffer.concat([encrypted, cipher.final()]);
+    return iv.toString('hex') + ':' + encrypted.toString('hex'); // Return IV and encrypted data
+};
+
+// Decrypt the data
+const decrypt = (text) => {
+    const parts = text.split(':'); // Split the IV and encrypted data
+    const iv = Buffer.from(parts.shift(), 'hex'); // Get the IV
+    const encryptedText = Buffer.from(parts.join(':'), 'hex'); // Get the encrypted data
+    const decipher = crypto.createDecipheriv(ALGORITHM, SECRET_KEY, iv);
+    let decrypted = decipher.update(encryptedText);
+    decrypted = Buffer.concat([decrypted, decipher.final()]);
+    return decrypted.toString();
+};
+
+// Load API keys and webhooks from MongoDB
+const loadConfig = async () => {
     try {
-        // Remove the session from the sessions object
-        delete sessions[sessionId];
-
-        // Check if the session file exists
-        await fs.access(sessionFilePath);
-
-        // Remove the directory and its contents
-        await fs.rmdir(sessionFilePath, {
-            recursive: true
-        }); // Use recursive to delete non-empty directories
-
-        res.status(200).json({
-            message: `Session ${sessionId} deleted successfully`
+        const apiKeysData = await ApiKey.find({});
+        apiKeysData.forEach(apiKey => {
+            apiKeys[apiKey.sessionId] = apiKey.apiKey;
         });
+        console.log('API keys loaded from MongoDB.');
+
+        const webhooksData = await Webhook.find({});
+        webhooksData.forEach(webhook => {
+            webhooks[webhook.sessionId] = webhook.webhookUrl;
+        });
+        console.log('Webhooks loaded from MongoDB.');
+
     } catch (error) {
-        if (error.code === 'ENOENT') {
-            res.status(404).json({
-                error: `Session ${sessionId} not found`
-            });
-        } else {
-            console.error(`Failed to delete session file for ${sessionId}:`, error);
-            res.status(500).json({
-                error: 'Failed to delete session file'
-            });
-        }
+        console.error('Could not load API keys and webhooks:', error);
+    }
+
+    // Load or generate the system API key
+    const systemApiKeyData = await SystemApiKey.findOne({});
+    if (systemApiKeyData) {
+        SYSTEM_API_KEY = decrypt(systemApiKeyData.key);
+		console.log(`System API Key: ${SYSTEM_API_KEY}`);		// Decrypt the stored key
+    } else {
+        SYSTEM_API_KEY = crypto.randomBytes(32).toString('hex');
+        const encryptedKey = encrypt(SYSTEM_API_KEY);
+        await new SystemApiKey({ key: encryptedKey }).save();
+        console.log(`Generated and saved new System API Key: ${SYSTEM_API_KEY}`);
+    }
+};
+
+// Save API keys to MongoDB
+const saveApiKeys = async () => {
+    for (const sessionId in apiKeys) {
+        await ApiKey.findOneAndUpdate({ sessionId }, { apiKey: apiKeys[sessionId] }, { upsert: true });
+    }
+};
+
+// Save webhooks to MongoDB
+const saveWebhooks = async () => {
+    for (const sessionId in webhooks) {
+        await Webhook.findOneAndUpdate({ sessionId }, { webhookUrl: webhooks[sessionId] }, { upsert: true });
     }
 };
 
@@ -66,72 +137,14 @@ const limiter = rateLimit({
 
 app.use(limiter);
 
-let sessions = {};
-const apiKeysFilePath = path.join(__dirname, 'api_keys.json');
-const webhookFilePath = path.join(__dirname, 'webhooks.json');
-const systemApiKeyFilePath = path.join(__dirname, 'system_api_key.json');
-
-let apiKeys = {};
-let webhooks = {};
-let SYSTEM_API_KEY;
-
-// Load API keys and webhooks from files
-const loadConfig = async () => {
-    try {
-        const apiKeysData = await fs.readFile(apiKeysFilePath, 'utf-8');
-        apiKeys = JSON.parse(apiKeysData);
-    } catch (error) {
-        console.error('Could not load API keys:', error);
-    }
-
-    try {
-        const webhooksData = await fs.readFile(webhookFilePath, 'utf-8');
-        webhooks = JSON.parse(webhooksData);
-    } catch (error) {
-        console.error('Could not load webhooks:', error);
-    }
-
-    // Load or generate the system API key
-    try {
-        const systemApiKeyData = await fs.readFile(systemApiKeyFilePath, 'utf-8');
-        SYSTEM_API_KEY = JSON.parse(systemApiKeyData).key;
-    } catch (error) {
-        // If the file doesn't exist, generate a new key and save it
-        SYSTEM_API_KEY = crypto.randomBytes(32).toString('hex');
-        await fs.writeFile(systemApiKeyFilePath, JSON.stringify({
-            key: SYSTEM_API_KEY
-        }, null, 2));
-        console.log(`Generated new System API Key: ${SYSTEM_API_KEY}`);
-    }
-};
-
-// Save API keys and webhooks to files
-const saveApiKeys = async () => {
-    await fs.writeFile(apiKeysFilePath, JSON.stringify(apiKeys, null, 2));
-};
-
-const saveWebhooks = async () => {
-    await fs.writeFile(webhookFilePath, JSON.stringify(webhooks, null, 2));
-};
-
 // Middleware to check API key
-const checkApiKey = (req, res, next) => {
+const checkApiKey = async (req, res, next) => {
     const apiKey = req.headers['x-api-key'];
-    const {
-        sessionId
-    } = req.params;
+    const { sessionId } = req.params;
 
-    if (!apiKey || !sessionId || apiKeys[sessionId] !== apiKey) {
+    const storedApiKey = await ApiKey.findOne({ sessionId });
+    if (!apiKey || !sessionId || (storedApiKey && storedApiKey.apiKey !== apiKey)) {
         return res.status(403).send('Forbidden: Invalid API key or sessionId');
-    }
-    next();
-};
-
-// Middleware to restrict access to localhost
-const restrictToLocalhost = (req, res, next) => {
-    const allowedIps = ['::1', '127.0.0.1', '::ffff:127.0.0.1']; // IPv6 and IPv4 localhost addresses
-    if (!allowedIps.includes(req.ip)) {
-        return res.status(403).send('Forbidden: Access allowed only from localhost');
     }
     next();
 };
@@ -147,18 +160,13 @@ const checkSystemApiKey = (req, res, next) => {
 
 // Function to initialize a socket connection for a given session ID
 const startSock = async (sessionId) => {
-    const sessionFilePath = `./sessions/${sessionId}`;
-    const {
-        state,
-        saveCreds
-    } = await useMultiFileAuthState(sessionFilePath);
+    const { state, saveCreds } = await useMultiFileAuthState(`./sessions/${sessionId}`);
     const sock = makeWASocket({
         auth: state,
         printQRInTerminal: false,
-        browser: ['waapi-mugh', 'Chrome', '100'] 
+        browser: ['waapi-mugh', 'Chrome', '100']
     });
 
-    // Initialize connection state for the session
     sessions[sessionId] = {
         sock,
         qrCodeUrl: null,
@@ -171,101 +179,112 @@ const startSock = async (sessionId) => {
     let manualDisconnect = false; // Flag to indicate a manual disconnect
 
     sock.ev.on('connection.update', async (update) => {
-        const {
-            connection,
-            qr,
-            lastDisconnect
-        } = update;
+		const { connection, qr, lastDisconnect } = update;
 
-        if (connection === 'close') {
-            // Check if the disconnection was manual
-			sessions[sessionId].isConnected = false;
-            if (manualDisconnect) {
-                console.log(`Connection closed for session ${sessionId} due to manual disconnect.`);
-                return; // Exit if it was a manual disconnect
-            }
-            
-            const shouldReconnect = (lastDisconnect && lastDisconnect.error.output.statusCode !== DisconnectReason.loggedOut);
-            console.log(`Connection closed for session ${sessionId}. Reconnecting: ${shouldReconnect}`);
-            if (shouldReconnect) startSock(sessionId);
-        } else if (connection === 'open') {
-            console.log(`Connection opened for session ${sessionId}`);
-            try {
-                await fs.access(sessionFilePath); // Check if the session file exists
-                console.log(`Session ${sessionId} restored from file.`);
-            } catch (error) {
-                console.error(`Session file for ${sessionId} does not exist or cannot be accessed.`);
-            }
-            clearTimeout(qrTimeout); // Clear timeout if connection is open
-        } else if (qr) {
-            console.log(`QR code for session ${sessionId}: ${qr}`);
-            const qrCodeUrl = await QRCode.toDataURL(qr);
-            sessions[sessionId].qrCodeUrl = qrCodeUrl;
+		if (connection === 'close') {
+			// Check if the session exists before trying to access its properties
+			if (sessions[sessionId]) {
+				sessions[sessionId].isConnected = false;
+				await Session.findOneAndUpdate({ sessionId }, { isConnected: false }, { new: true });
 
-            // Set a timeout to close the socket if the QR code is not scanned
-            qrTimeout = setTimeout(() => {
-                console.log(`QR code not scanned for session ${sessionId}. Closing connection.`);
-                manualDisconnect = true; // Set the flag for manual disconnect
-                sock.end(); // Use end to close the socket connection
-            }, 1 * 60 * 1000); // 1 minutes timeout
-        }
-    });
+				if (manualDisconnect) {
+					console.log(`Connection closed for session ${sessionId} due to manual disconnect.`);
+					return;
+				}
+
+				const shouldReconnect = (lastDisconnect && lastDisconnect.error && lastDisconnect.error.output && lastDisconnect.error.output.statusCode !== DisconnectReason.loggedOut);
+				console.log(`Connection closed for session ${sessionId}. Reconnecting: ${shouldReconnect}`);
+				if (shouldReconnect) startSock(sessionId);
+				} else {
+					console.log(`Session ${sessionId} does not exist. Cannot update connection status.`);
+				}
+			} else if (connection === 'open') {
+				console.log(`Connection opened for session ${sessionId}`);
+				if (sessions[sessionId]) {
+					sessions[sessionId].isConnected = true;
+					await Session.findOneAndUpdate({ sessionId }, { isConnected: true }, { new: true });
+					clearTimeout(qrTimeout); // Clear timeout if connection is open
+				} else {
+					console.log(`Session ${sessionId} does not exist. Cannot update connection status.`);
+				}
+			} else if (qr) {
+				console.log(`QR code for session ${sessionId}: ${qr}`);
+				const qrCodeUrl = await QRCode.toDataURL(qr);
+				if (sessions[sessionId]) {
+					sessions[sessionId].qrCodeUrl = qrCodeUrl;
+					await Session.findOneAndUpdate({ sessionId }, { qrCodeUrl }, { new: true });
+				}
+        
+			// Set a timeout to close the socket if the QR code is not scanned
+			qrTimeout = setTimeout(() => {
+					console.log(`QR code not scanned for session ${sessionId}. Closing connection.`);
+					manualDisconnect = true; // Set the flag for manual disconnect
+					sock.end(); // Use end to close the socket connection
+			}, 1 * 60 * 1000); // 1 minute timeout
+		}
+	});
+
 
     sock.ev.on('messages.upsert', async (upsert) => {
-        const senderNumber = upsert.messages[0]?.key.remoteJid?.split('@')[0];
-        const webhookUrl = webhooks[sessionId];
-        if (webhookUrl) {
-            await axios.post(webhookUrl, {
-                sessionId,
-                senderNumber,
-                message: upsert
-            });
-        } else {
-            console.log(`No webhook URL configured for session ${sessionId}`);
-        }
-    });
-    sessions[sessionId].isConnected = true; // Update connection state	
-    console.log(`Socket initialized for session ${sessionId}`);
+		const senderNumber = upsert.messages[0]?.key.remoteJid?.split('@')[0];
+		const webhook = await Webhook.findOne({ sessionId });
+		if (webhook) {
+			try {
+				// Validate the webhook URL
+				new URL(webhook.webhookUrl); // This will throw if the URL is invalid
+            
+				await axios.post(webhook.webhookUrl, {
+					sessionId,
+					senderNumber,
+					message: upsert
+				});
+			} catch (error) {
+				if (error instanceof TypeError) {
+					console.error(`Invalid webhook URL for session ${sessionId}: ${webhook.webhookUrl}`);
+				} else {
+					console.error(`Error sending data to webhook: ${error.message}`);
+				}
+			}
+		} else {
+			console.log(`No webhook URL configured for session ${sessionId}`);
+		}
+	});
 
+    // Save initial session data to MongoDB when starting a new session
+    await Session.findOneAndUpdate({ sessionId }, { sessionId, qrCodeUrl: null, isConnected: true }, { upsert: true });
+    console.log(`Socket initialized for session ${sessionId}`);
 };
 
 // Function to restore sessions on startup
 const restoreSessions = async () => {
     try {
-        const sessionsDir = path.join(__dirname, 'sessions');
-        console.log(`Checking for sessions directory at: ${sessionsDir}`);
-
-        // Check if sessions directory exists
-        await fs.access(sessionsDir, fs.constants.F_OK);
-        const sessionFiles = await fs.readdir(sessionsDir);
-
-        if (sessionFiles.length === 0) {
-            console.log("No session files found.");
+        // Fetch all sessions from MongoDB
+        const storedSessions = await Session.find({});
+        if (storedSessions.length === 0) {
+            console.log("No sessions found in the database.");
             return;
         }
 
-        for (const sessionId of sessionFiles) {
+        for (const storedSession of storedSessions) {
+            const { sessionId } = storedSession;
             console.log(`Attempting to restore session: ${sessionId}`);
             await startSock(sessionId);
         }
     } catch (error) {
-        if (error.code === 'ENOENT') {
-            console.log("Sessions directory not found. No sessions to restore.");
-        } else {
-            console.error('Error restoring sessions:', error);
-        }
+        console.error('Error restoring sessions:', error);
     }
 };
 
-restoreSessions();
+// Load the system API key and restore sessions when the server starts
+loadConfig().then(() => {
+    restoreSessions();
+});
 
 // RESTful API Endpoints
 
 // Start the socket for a given session ID and get QR code
 app.post('/sessions/:sessionId/start', checkApiKey, async (req, res) => {
-    const {
-        sessionId
-    } = req.params;
+    const { sessionId } = req.params;
     try {
         await startSock(sessionId);
         res.status(200).json({
@@ -281,9 +300,7 @@ app.post('/sessions/:sessionId/start', checkApiKey, async (req, res) => {
 
 // Endpoint to delete a session by session ID
 app.delete('/sessions/:sessionId', checkApiKey, async (req, res) => {
-    const {
-        sessionId
-    } = req.params;
+    const { sessionId } = req.params;
 
     // Check if the session exists
     if (!sessions[sessionId]) {
@@ -301,47 +318,25 @@ app.delete('/sessions/:sessionId', checkApiKey, async (req, res) => {
     // Remove the session from the sessions object
     delete sessions[sessionId];
 
-    // Define the path to the session directory
-    const sessionDirPath = path.join(__dirname, 'sessions', sessionId);
+    // Remove the session from the database
+    await Session.deleteOne({ sessionId });
 
-    try {
-        // Check if the session directory exists
-        await fs.access(sessionDirPath);
-
-        // Remove the directory and its contents
-        await fs.rmdir(sessionDirPath, {
-            recursive: true
-        }); // Use recursive to delete non-empty directories
-
-        res.status(200).json({
-            message: `Session ${sessionId} deleted successfully`
-        });
-    } catch (error) {
-        if (error.code === 'ENOENT') {
-            return res.status(404).json({
-                error: `Session ${sessionId} not found`
-            });
-        } else {
-            console.error(`Failed to delete session directory for ${sessionId}:`, error);
-            return res.status(500).json({
-                error: 'Failed to delete session directory'
-            });
-        }
-    }
+    res.status(200).json({
+        message: `Session ${sessionId} deleted successfully`
+    });
 });
 
 // Check if a socket is already started for a given session ID
-app.get('/sessions/:sessionId/status', (req, res) => {
-    const {
-        sessionId
-    } = req.params;
-    const session = sessions[sessionId];
+app.get('/sessions/:sessionId/status', async (req, res) => {
+    const { sessionId } = req.params;
 
-    // Check if the session exists
-    if (session) {
+    // Fetch the session status from MongoDB
+    const sessionData = await Session.findOne({ sessionId });
+
+    if (sessionData) {
         // Return RUNNING if connected, otherwise return STOPPED
         return res.status(200).json({
-            status: session.isConnected ? 'RUNNING' : 'STOPPED'
+            status: sessionData.isConnected ? 'RUNNING' : 'STOPPED'
         });
     }
 
@@ -352,14 +347,11 @@ app.get('/sessions/:sessionId/status', (req, res) => {
 });
 
 // Get the QR code for a specific session ID
-app.get('/sessions/:sessionId/qrcode', checkApiKey, (req, res) => {
-    const {
-        sessionId
-    } = req.params;
+app.get('/sessions/:sessionId/qrcode', checkApiKey, async (req, res) => {
+    const { sessionId } = req.params;
     const session = sessions[sessionId];
 
     if (session && session.qrCodeUrl) {
-        // Return both the image URL and a status message
         return res.status(200).json({
             message: 'QR code retrieved successfully',
             qrCodeUrl: session.qrCodeUrl,
@@ -372,13 +364,56 @@ app.get('/sessions/:sessionId/qrcode', checkApiKey, (req, res) => {
     }
 });
 
-// Check if a number exists on WhatsApp
-app.get('/sessions/:sessionId/check/:phone',
-    checkApiKey,
-    param('sessionId').isString().withMessage('Invalid sessionId'),
-    param('phone').isString().isLength({
-        min: 10
-    }).withMessage('Invalid phone number'),
+// Generate a new API key for a specific session ID
+app.post('/key/:sessionId', checkSystemApiKey, async (req, res) => {
+    const { sessionId } = req.params;
+    const apiKey = crypto.randomBytes(32).toString('hex');
+    apiKeys[sessionId] = apiKey;  // Update the in-memory object
+    await saveApiKeys();          // Save to MongoDB
+    
+    res.status(200).json({
+        sessionId,
+        apiKey
+    });
+});
+
+// Get the API key for a specific session ID
+app.get('/key/:sessionId', checkSystemApiKey, async (req, res) => {
+    const { sessionId } = req.params;
+    const apiKeyData = await ApiKey.findOne({ sessionId });
+
+    if (!apiKeyData) {
+        return res.status(404).json({
+            error: `API key not found for session ${sessionId}`
+        });
+    }
+    
+    res.status(200).json({
+        apiKey: apiKeyData.apiKey
+    });
+});
+
+// Delete the API key for a specific session ID
+app.delete('/key/:sessionId', checkSystemApiKey, async (req, res) => {
+    const { sessionId } = req.params;
+
+    const apiKeyData = await ApiKey.findOne({ sessionId });
+    if (!apiKeyData) {
+        return res.status(404).json({
+            error: `API key not found for session ${sessionId}`
+        });
+    }
+
+    await ApiKey.deleteOne({ sessionId });
+    delete apiKeys[sessionId]; // Remove from in-memory object
+    res.status(200).json({
+        message: `API key deleted for session ${sessionId}`
+    });
+});
+
+// Set the webhook URL for a specific session ID
+app.post('/webhook/:sessionId', checkApiKey,
+    body('webhookUrl').isURL().withMessage('Invalid webhook URL'),
     async (req, res) => {
         const errors = validationResult(req);
         if (!errors.isEmpty()) {
@@ -387,29 +422,92 @@ app.get('/sessions/:sessionId/check/:phone',
             });
         }
 
-        const {
-            sessionId,
-            phone
-        } = req.params;
+        const { sessionId } = req.params;
+        const { webhookUrl } = req.body;
+
+        webhooks[sessionId] = webhookUrl;  // Update the in-memory object
+        await saveWebhooks();               // Save to MongoDB
+
+        res.status(200).json({
+            message: `Webhook URL set for session ${sessionId}`
+        });
+    }
+);
+
+// Get the webhook URL for a specific session ID
+app.get('/webhook/:sessionId', checkApiKey, async (req, res) => {
+    const { sessionId } = req.params;
+    const webhookData = await Webhook.findOne({ sessionId });
+
+    if (!webhookData) {
+        return res.status(404).json({
+            error: `Webhook URL not found for session ${sessionId}`
+        });
+    }
+
+    res.status(200).json({
+        sessionId,
+        webhookUrl: webhookData.webhookUrl
+    });
+});
+
+// Webhook endpoint to listen for new incoming messages
+app.post('/webhook/new-message', checkApiKey, (req, res) => {
+    const { sessionId, message } = req.body;
+    console.log(`Webhook received new message for session ${sessionId}:`, message);
+    res.status(200).send('Webhook received new message');
+});
+
+// Check if a number exists on WhatsApp
+// Check if a phone number is registered on WhatsApp
+app.get('/sessions/:sessionId/check/:phone',
+    checkApiKey,
+    param('sessionId').isString().withMessage('Invalid sessionId'),
+    param('phone').isString().isLength({ min: 10 }).withMessage('Invalid phone number'),
+    async (req, res) => {
+        const errors = validationResult(req);
+        if (!errors.isEmpty()) {
+            return res.status(400).json({
+                errors: errors.array()
+            });
+        }
+
+        const { sessionId, phone } = req.params;
         const session = sessions[sessionId];
 
+        if (!session) {
+            return res.status(404).json({
+                error: `Session ${sessionId} not found`
+            });
+        }
+
         try {
-            const [result] = await session.sock.onWhatsApp(phone);
+            const result = await session.sock.onWhatsApp(phone);
+
+            // Validate result
+            if (!result || !Array.isArray(result) || result.length === 0) {
+                return res.status(404).json({
+                    exists: false,
+                    message: `Number ${phone} is not registered on WhatsApp`
+                });
+            }
+
             res.status(200).json({
-                exists: result.exists,
-                jid: result.jid
+                exists: result[0].exists,
+                jid: result[0].jid
             });
         } catch (error) {
             console.error('Error checking WhatsApp number:', error);
             res.status(500).json({
                 exists: false,
-                message: `Number ${phone} is not registered on WhatsApp`
+                message: 'Failed to check WhatsApp number'
             });
         }
     }
 );
 
 // Send a message 
+// Send a text message
 app.post('/send/:sessionId/messages',
     checkApiKey,
     body('number').isString().withMessage('Missing number'), // Change id to number
@@ -422,13 +520,8 @@ app.post('/send/:sessionId/messages',
             });
         }
 
-        const {
-            sessionId
-        } = req.params;
-        const {
-            number,
-            text
-        } = req.body; // Extract number instead of id
+        const { sessionId } = req.params;
+        const { number, text } = req.body; // Extract number instead of id
 
         const session = sessions[sessionId];
         if (!session) {
@@ -439,8 +532,10 @@ app.post('/send/:sessionId/messages',
 
         try {
             const id = `${number}@s.whatsapp.net`; // Format the ID with the WhatsApp domain
-            const [result] = await session.sock.onWhatsApp(id);
-            if (!result.exists) {
+            const result = await session.sock.onWhatsApp(id);
+
+            // Check if result is defined and has the expected structure
+            if (!result || !Array.isArray(result) || result.length === 0 || !result[0].exists) {
                 return res.status(404).json({
                     error: `Number ${number} is not registered on WhatsApp`
                 });
@@ -462,11 +557,17 @@ app.post('/send/:sessionId/messages',
     }
 );
 
-// Send an image message
 app.post('/send/:sessionId/messages/image',
     checkApiKey,
-    body('number').isString().withMessage('Missing number'), // Change id to number
-    body('attachment').isURL().withMessage('Invalid attachment URL'),
+    body('number').isString().withMessage('Missing number'),
+    body('attachment.url').custom(value => {
+        const isLocalhost = value.startsWith('http://localhost') || value.startsWith('https://localhost');
+        const isValidURL = /^(http|https):\/\/[^ "]+$/.test(value);
+        if (!isLocalhost && !isValidURL) {
+            throw new Error('Invalid attachment URL');
+        }
+        return true;
+    }),
     async (req, res) => {
         const errors = validationResult(req);
         if (!errors.isEmpty()) {
@@ -475,14 +576,8 @@ app.post('/send/:sessionId/messages/image',
             });
         }
 
-        const {
-            sessionId
-        } = req.params;
-        const {
-            number,
-            text,
-            attachment
-        } = req.body; // Extract number instead of id
+        const { sessionId } = req.params;
+        const { number, text, attachment } = req.body;
 
         const session = sessions[sessionId];
         if (!session) {
@@ -492,15 +587,17 @@ app.post('/send/:sessionId/messages/image',
         }
 
         try {
-            const id = `${number}@s.whatsapp.net`; // Format the ID with the WhatsApp domain
-            const [result] = await session.sock.onWhatsApp(id);
-            if (!result.exists) {
+            const id = `${number}@s.whatsapp.net`;
+            const result = await session.sock.onWhatsApp(id);
+
+            if (!result || !Array.isArray(result) || result.length === 0 || !result[0].exists) {
                 return res.status(404).json({
                     error: `Number ${number} is not registered on WhatsApp`
                 });
             }
 
-            const response = await axios.get(attachment, {
+            // Corrected line: Accessing the URL from the attachment object
+            const response = await axios.get(attachment.url, {
                 responseType: 'arraybuffer'
             });
             const buffer = Buffer.from(response.data, 'binary');
@@ -522,10 +619,20 @@ app.post('/send/:sessionId/messages/image',
 );
 
 // Send a PDF or document file
+// Send a file message
 app.post('/send/:sessionId/messages/file',
     checkApiKey,
     body('number').isString().withMessage('Missing number'), // Change id to number
     body('attachment').isObject().withMessage('Invalid attachment object'),
+    body('attachment.url').custom(value => {
+        const isLocalhost = value.startsWith('http://localhost') || value.startsWith('https://localhost');
+        const isValidURL = /^(http|https):\/\/[^ "]+$/.test(value);
+        if (!isLocalhost && !isValidURL) {
+            throw new Error('Invalid attachment URL');
+        }
+        return true;
+    }),
+    body('attachment.fileName').isString().withMessage('Missing file name'),
     async (req, res) => {
         const errors = validationResult(req);
         if (!errors.isEmpty()) {
@@ -534,14 +641,8 @@ app.post('/send/:sessionId/messages/file',
             });
         }
 
-        const {
-            sessionId
-        } = req.params;
-        const {
-            number,
-            text,
-            attachment
-        } = req.body; // Extract number instead of id
+        const { sessionId } = req.params;
+        const { number, text, attachment } = req.body; // Extract number instead of id
 
         const session = sessions[sessionId];
         if (!session) {
@@ -552,8 +653,10 @@ app.post('/send/:sessionId/messages/file',
 
         try {
             const id = `${number}@s.whatsapp.net`; // Format the ID with the WhatsApp domain
-            const [result] = await session.sock.onWhatsApp(id);
-            if (!result.exists) {
+            const result = await session.sock.onWhatsApp(id);
+
+            // Check if result is defined and has the expected structure
+            if (!result || !Array.isArray(result) || result.length === 0 || !result[0].exists) {
                 return res.status(404).json({
                     error: `Number ${number} is not registered on WhatsApp`
                 });
@@ -587,115 +690,8 @@ app.post('/send/:sessionId/messages/file',
     }
 );
 
-// Set the webhook URL for a specific session ID
-app.post('/webhook/:sessionId', checkApiKey,
-    body('webhookUrl').isURL().withMessage('Invalid webhook URL'),
-    async (req, res) => {
-        const errors = validationResult(req);
-        if (!errors.isEmpty()) {
-            return res.status(400).json({
-                errors: errors.array()
-            });
-        }
-
-        const {
-            sessionId
-        } = req.params;
-        const {
-            webhookUrl
-        } = req.body;
-
-        webhooks[sessionId] = webhookUrl;
-        await saveWebhooks();
-
-        res.status(200).json({
-            message: `Webhook URL set for session ${sessionId}`
-        });
-    }
-);
-
-// Get the webhook URL for a specific session ID
-app.get('/webhook/:sessionId', checkApiKey, (req, res) => {
-    const {
-        sessionId
-    } = req.params;
-    const webhookUrl = webhooks[sessionId];
-
-    if (!webhookUrl) {
-        return res.status(404).json({
-            error: `Webhook URL not found for session ${sessionId}`
-        });
-    }
-
-    res.status(200).json({
-        sessionId,
-        webhookUrl
-    });
-});
-
-// Webhook endpoint to listen for new incoming messages
-app.post('/webhook/new-message', checkApiKey, (req, res) => {
-    const {
-        sessionId,
-        message
-    } = req.body;
-    console.log(`Webhook received new message for session ${sessionId}:`, message);
-    res.status(200).send('Webhook received new message');
-});
-
-// Generate a new API key for a specific session ID
-app.post('/key/:sessionId', restrictToLocalhost, checkSystemApiKey, (req, res) => {
-    const {
-        sessionId
-    } = req.params;
-    const apiKey = crypto.randomBytes(32).toString('hex');
-    apiKeys[sessionId] = apiKey;
-    saveApiKeys();
-    res.status(200).json({
-        sessionId,
-        apiKey
-    });
-});
-
-// Get the API key for a specific session ID
-app.get('/key/:sessionId', restrictToLocalhost, checkSystemApiKey, (req, res) => {
-    const {
-        sessionId
-    } = req.params;
-    const apiKey = apiKeys[sessionId];
-
-    if (!apiKey) {
-        return res.status(404).json({
-            error: `API key not found for session ${sessionId}`
-        });
-    }
-    res.status(200).json({
-        apiKey
-    });
-});
-
-// Delete the API key for a specific session ID
-app.delete('/key/:sessionId', restrictToLocalhost, checkSystemApiKey, (req, res) => {
-    const {
-        sessionId
-    } = req.params;
-
-    if (!apiKeys[sessionId]) {
-        return res.status(404).json({
-            error: `API key not found for session ${sessionId}`
-        });
-    }
-
-    delete apiKeys[sessionId];
-    saveApiKeys();
-    res.status(200).json({
-        message: `API key deleted for session ${sessionId}`
-    });
-});
 
 // Start the Express server
 app.listen(port, () => {
     console.log(`WhatsApp API server listening at http://localhost:${port}`);
-    loadConfig(); // Load configurations when server starts
-    console.log(`System API Key: ${SYSTEM_API_KEY}`); // Log the system API key for future use
 });

@@ -1,15 +1,15 @@
 <?php
 //==================================================================
-//API KEY. From Localhost Only. required system api key.
+//API KEY. required system api key.
 //==================================================================
-//generate apikey for sessionid. Shall be from localhost only
+//generate apikey for sessionid. 
 function genapi($url, $sessionid, $sysapikey)
 {
 
     $curl = curl_init();
 
     curl_setopt_array($curl, array(
-        CURLOPT_URL => "$url/sessions/$sessionid/api-keys",
+        CURLOPT_URL => "$url/key/$sessionid",
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_ENCODING => '',
         CURLOPT_MAXREDIRS => 10,
@@ -31,7 +31,7 @@ function genapi($url, $sessionid, $sysapikey)
 
 }
 
-//get apikey for sessionid. Shall be from localhost only
+//get apikey for sessionid. 
 function getapi($url, $sessionid, $sysapikey)
 {
     $curl = curl_init();
@@ -57,7 +57,8 @@ function getapi($url, $sessionid, $sysapikey)
     curl_close($curl);
     return $data;
 }
-//delete api key. Shall be from localhost only
+
+//delete api key. 
 function delapi($url, $sessionid, $sysapikey)
 {
     $curl = curl_init();
@@ -206,8 +207,8 @@ function text($url, $sessionid, $number, $text, $apikey)
         CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
         CURLOPT_CUSTOMREQUEST => 'POST',
         CURLOPT_POSTFIELDS => '{
-  "number: $number",
-  "text: $text"
+			"number" : "'.$number.'",
+			"text" : "$text"
 }',
         CURLOPT_HTTPHEADER => array(
             'Content-Type: application/json',
@@ -221,7 +222,6 @@ function text($url, $sessionid, $number, $text, $apikey)
     curl_close($curl);
     return $data;
 }
-//sending image message by url
 function image($url, $sessionid, $number, $caption, $imageurl, $apikey)
 {
     $curl = curl_init();
@@ -236,14 +236,16 @@ function image($url, $sessionid, $number, $caption, $imageurl, $apikey)
         CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
         CURLOPT_CUSTOMREQUEST => 'POST',
         CURLOPT_POSTFIELDS => '{
-  "number: $number",
-  "text: $caption",
-  "attachment: $imageurl"
-}',
+            "number": "'.$number.'",
+            "text": "'.$caption.'",
+            "attachment": {
+                "url": "'.$imageurl.'"
+            }
+        }',
         CURLOPT_HTTPHEADER => array(
             'Content-Type: application/json',
             "x-api-key: $apikey"
-        ) ,
+        ),
     ));
 
     $response = curl_exec($curl);
@@ -252,7 +254,8 @@ function image($url, $sessionid, $number, $caption, $imageurl, $apikey)
     curl_close($curl);
     return $data;
 }
-//sending file message by url
+
+
 function sendfile($url, $sessionid, $number, $caption, $fileurl, $apikey)
 {
     $filename = basename($fileurl);
@@ -268,17 +271,17 @@ function sendfile($url, $sessionid, $number, $caption, $fileurl, $apikey)
         CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
         CURLOPT_CUSTOMREQUEST => 'POST',
         CURLOPT_POSTFIELDS => '{
-  "number: $number",
-  "text: $caption",
-  "attachment": {
-    "url: $fileurl",
-    "fileName: $filename"
-  }
-}',
+            "number": "'.$number.'",
+            "text": "'.$caption.'",
+            "attachment": {
+                "url": "'.$fileurl.'",
+                "fileName": "'.$filename.'"
+            }
+        }',
         CURLOPT_HTTPHEADER => array(
             'Content-Type: application/json',
             "x-api-key: $apikey"
-        ) ,
+        ),
     ));
 
     $response = curl_exec($curl);
@@ -305,12 +308,12 @@ function setwebhook($url, $sessionid, $webhookurl, $apikey)
         CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
         CURLOPT_CUSTOMREQUEST => 'POST',
         CURLOPT_POSTFIELDS => '{
-  "webhookUrl: $webhookurl"
-}',
+            "webhookUrl": "'.$webhookurl.'"
+        }',
         CURLOPT_HTTPHEADER => array(
             'Content-Type: application/json',
             "x-api-key: $apikey"
-        ) ,
+        ),
     ));
 
     $response = curl_exec($curl);
@@ -319,6 +322,7 @@ function setwebhook($url, $sessionid, $webhookurl, $apikey)
     curl_close($curl);
     return $data;
 }
+
 //get webhook for a session ID
 function checkwebhook($url, $sessionid, $apikey)
 {
