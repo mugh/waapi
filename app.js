@@ -24,6 +24,9 @@ const port = 3000;
 
 app.use(express.json());
 
+// Serve static files from the 'public' directory
+app.use(express.static(path.join(__dirname, 'public')));
+
 // MongoDB connection
 mongoose.connect(process.env.MONGODB_URI)
     .then(() => console.log('MongoDB connected successfully'))
@@ -160,12 +163,26 @@ const checkSystemApiKey = (req, res, next) => {
     next();
 };
 
+// Middleware to restrict access to localhost
+const restrictToLocalhost = (req, res, next) => {
+    const allowedIps = ['::1', '127.0.0.1', '::ffff:127.0.0.1']; // IPv6 and IPv4 localhost addresses
+    if (!allowedIps.includes(req.ip)) {
+        return res.status(403).send('Forbidden: Access allowed only from localhost');
+    }
+    next();
+};
+
 // Function to delete the session folder if it exists
 const deleteSessionFolder = (sessionId) => {
     const sessionFolderPath = path.join(__dirname, 'sessions', sessionId); // Construct the path to the session folder
     if (fs.existsSync(sessionFolderPath)) { // Check if the folder exists
-        fs.rmSync(sessionFolderPath, { recursive: true, force: true }); // Delete the folder and its contents
-        console.log(`Deleted session folder: ${sessionFolderPath}`);
+        try {
+            // Use fs.rmdirSync with recursive option to ensure all contents are deleted
+            fs.rmSync(sessionFolderPath, { recursive: true, force: true }); // Delete the folder and its contents
+            console.log(`Deleted session folder: ${sessionFolderPath}`);
+        } catch (error) {
+            console.error(`Error deleting session folder: ${error.message}`);
+        }
     }
 };
 
@@ -231,19 +248,18 @@ const startSock = async (sessionId) => {
             sessions[sessionId].isConnected = true;
             await Session.findOneAndUpdate({ sessionId }, { isConnected: true }, { new: true });
         } else if (qr) {
-            // Check if the timeout has already been reached
-            if (!sessions[sessionId].qrTimeoutReached) {
+                   
                 console.log(`QR code for session ${sessionId}: ${qr}`);
                 const qrCodeUrl = await QRCode.toDataURL(qr);
-                sessions[sessionId].qrCodeUrl = qrCodeUrl;
-                await Session.findOneAndUpdate({ sessionId }, { qrCodeUrl }, { new: true });
-
+                if (sessions[sessionId]) {
+					sessions[sessionId].qrCodeUrl = qrCodeUrl;
+					await Session.findOneAndUpdate({ sessionId }, { qrCodeUrl }, { new: true });
+				} else {
+					console.error(`Session ${sessionId} is not initialized. Cannot set qrCodeUrl.`);
+				}
                 // Print the QR code to the terminal with smaller size
                 qrcodeTerminal.generate(qr, { small: true }); // Generate and print the QR code with small size
 
-            } else {
-                console.log(`QR code generation skipped for session ${sessionId} as timeout has already been reached.`);
-            }
         }
     });
 
@@ -334,17 +350,19 @@ app.delete('/sessions/:sessionId', checkApiKey, async (req, res) => {
     }
 
     // Close the socket if it exists
-    const sock = sessions[sessionId].sock;
-    if (sock) {
-        sock.end(); // Close the socket connection
-    }
+    //const sock = sessions[sessionId].sock;
+    //if (sock) {
+     //   sock.end(); // Close the socket connection
+    //}
 
     // Remove the session from the sessions object
     delete sessions[sessionId];
 
     // Remove the session from the database
     await Session.deleteOne({ sessionId });
-	
+	await Webhook.deleteOne({ sessionId });
+	await ApiKey.deleteOne({ sessionId });
+
 	//delete session folder
 	deleteSessionFolder(sessionId);
 	
@@ -584,6 +602,7 @@ app.post('/send/:sessionId/messages',
     }
 );
 
+// Send image
 app.post('/send/:sessionId/messages/image',
     checkApiKey,
     body('number').isString().withMessage('Missing number'),
@@ -716,6 +735,51 @@ app.post('/send/:sessionId/messages/file',
         }
     }
 );
+
+// Endpoint to fetch all sessions
+app.get('/sessions', async (req, res) => {
+    try {
+        // Fetch all sessions
+        const storedSessions = await Session.find({});
+        
+        // Fetch all webhooks
+        const storedWebhooks = await Webhook.find({});
+        
+        // Create a map of webhook URLs by session ID
+        const webhookMap = {};
+        storedWebhooks.forEach(webhook => {
+            webhookMap[webhook.sessionId] = webhook.webhookUrl;
+        });
+
+        // Combine session data with webhook URLs
+        const sessionsWithWebhooks = storedSessions.map(session => ({
+            sessionId: session.sessionId,
+            isConnected: session.isConnected,
+            webhookUrl: webhookMap[session.sessionId] || 'N/A' // Default to 'N/A' if no webhook URL exists
+        }));
+
+        res.status(200).json(sessionsWithWebhooks);
+    } catch (error) {
+        console.error('Error fetching sessions:', error);
+        res.status(500).json({ error: 'Failed to fetch sessions' });
+    }
+});
+
+// get system key
+app.get('/system-api-key', restrictToLocalhost, async (req, res) => {
+    try {
+        const systemApiKeyData = await SystemApiKey.findOne({});
+        if (systemApiKeyData) {
+            const decryptedKey = decrypt(systemApiKeyData.key); // Assuming you have a decrypt function
+            res.status(200).json({ key: decryptedKey });
+        } else {
+            res.status(404).json({ error: 'System API key not found' });
+        }
+    } catch (error) {
+        console.error('Error fetching system API key:', error);
+        res.status(500).json({ error: 'Failed to fetch system API key' });
+    }
+});
 
 
 // Start the Express server

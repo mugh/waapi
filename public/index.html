@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WhatsApp API Client</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+    <style>
+        #consoleLog {
+            border: 1px solid #ccc;
+            background-color: #f9f9f9;
+            padding: 10px;
+            height: 350px;
+            overflow-y: auto;
+            font-family: monospace;
+        }
+    </style>
+</head>
+<body class="bg-light">
+    <div class="container mt-5">
+        <h1 class="text-center mb-5">WAAPI-Mugh Interface</h1>
+
+        <!-- Card for Session Init and Setup Webhook -->
+        <div class="row">
+            <div class="col-md-6 mb-4">
+                <div class="card">
+                    <div class="card-body">
+                        <h2 class="card-title">Log</h2>
+                        <div id="consoleLog"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6 mb-4">
+                <div class="card">
+                    <div class="card-body">
+                        <h2 class="card-title">Session Init</h2>
+                        <form id="apiForm" class="mb-4">
+                            <div class="mb-3">
+                                <input type="text" id="sessionId" placeholder="Session ID" class="form-control" required oninput="checkSessionStatus()" />
+                            </div>
+                            <div class="mb-3">
+                                <input type="text" id="apiKey" placeholder="API Key" class="form-control" required />
+                            </div>
+                            <button type="button" onclick="getApiKey()" id="getapi" class="btn btn-primary mb-2">Get API Key</button>
+                            <button type="button" onclick="startSession()" id="startSessionBtn" class="btn btn-primary mb-2">Start Session</button>
+                            <button type="button" onclick="scanQRCode()" class="btn btn-primary mb-2">Scan QR Code</button>
+                        </form>
+                        <hr>
+                        <h2 class="card-title">Setup Webhook</h2>
+                        <div class="mb-3">
+                            <input type="text" id="webhookUrl" placeholder="Webhook URL" class="form-control" required />
+                        </div>
+                        <button type="button" onclick="setupWebhook()" class="btn btn-primary">Set Webhook</button>
+                    </div>
+                </div>
+            </div>            
+        </div>
+
+        <!-- Card for Send Message and related sections -->
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="card-title">Send Message</h2>
+                <div class="row">
+                    <div class="col-md-4 mb-3">
+                        <input type="text" id="messageNumber" placeholder="Recipient Number Using Country Code" class="form-control" required><hr>
+                    </div>
+                    <div class="col-md-8">
+                        <div class="mb-4">
+                            <h3 class="h5">Send Text</h3>
+                            <input type="text" id="messageText" placeholder="Message Text" class="form-control mb-2" required>
+                            <button onclick="sendMessage()" class="btn btn-primary">Send Message</button>
+                        </div>
+
+                        <!-- Send Image Section -->
+                        <div class="mb-4">
+                            <h3 class="h5">Send Image</h3>                            
+                            <input type="text" id="imageText" placeholder="Image Caption" class="form-control mb-2" />
+                            <input type="text" id="imageUrl" placeholder="Image URL" class="form-control mb-2" required />
+                            <button onclick="sendImage()" class="btn btn-primary">Send Image</button>                            
+                        </div>
+
+                        <!-- Send PDF Section -->
+                        <div class="mb-4">
+                            <h3 class="h5">Send PDF</h3>                            
+                            <input type="text" id="pdfText" placeholder="PDF Caption" class="form-control mb-2" />
+                            <input type="text" id="pdfUrl" placeholder="PDF URL" class="form-control mb-2" required />
+                            <button onclick="sendPDF()" class="btn btn-primary">Send PDF</button>                         
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Available Sessions Section -->
+        <section class="col-12 mb-5">
+            <div class="card">
+                <div class="card-body">
+                    <h2 class="card-title">Available Sessions</h2>
+                    <button class="btn btn-success mb-3" onclick="fetchSessions()">Refresh Sessions</button>
+                    <table class="table table-bordered">
+                        <thead>
+                            <tr>
+                                <th>Session ID</th>
+                                <th>Connection Status</th>
+                                <th>Webhook URL</th>
+                                <th>Actions</th> <!-- New column for actions -->
+                            </tr>
+                        </thead>
+                        <tbody id="sessionTableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+    const apiBaseUrl = 'http://localhost:3000'; // Change if your API is hosted elsewhere
+
+	async function checkSessionStatus() {
+    const sessionId = document.getElementById('sessionId').value;
+    const apiKey = document.getElementById('apiKey').value;
+
+    // Reset the visibility of the Start Session button
+    document.getElementById('startSessionBtn').style.display = ''; 
+	document.getElementById('getapi').style.display = '';
+
+    // If the session ID input is empty, exit early
+    if (!sessionId) {
+        document.getElementById('apiKey').value = ''; // Clear API key if session ID is empty
+        return;
+    }
+
+    try {
+        const response = await fetch(`${apiBaseUrl}/sessions/${sessionId}/status`, {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': apiKey // Include the API key in the headers if needed
+            }
+        });
+
+        // Check if the response is OK (status 200)
+        if (!response.ok) {
+            // Handle 404 error when session does not exist
+            throw new Error(`Session not found: ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        // Check if the session is running
+        if (data.status === 'RUNNING') {
+			document.getElementById('consoleLog').innerHTML = `${sessionId} session is RUNNING` + '<br>' + consoleLog.innerHTML;
+            document.getElementById('startSessionBtn').style.display = 'none';
+			document.getElementById('getapi').style.display = 'none';
+            await getApiKey(); // Call getApiKey to populate the API key
+        } else {
+            document.getElementById('startSessionBtn').style.display = ''; // Show button if not connected
+			document.getElementById('getapi').style.display = '';
+        }
+    } catch (error) {
+        document.getElementById('consoleLog').innerHTML = error + '<br>' + consoleLog.innerHTML;
+        document.getElementById('startSessionBtn').style.display = ''; // Show button on error
+		document.getElementById('getapi').style.display = '';
+    }
+}
+		
+		async function startSession() {
+        const sessionId = document.getElementById('sessionId').value;
+        const apiKey = document.getElementById('apiKey').value;
+
+			try {
+				const response = await fetch(`${apiBaseUrl}/sessions/${sessionId}/start`, {
+					method: 'POST',
+					headers: {
+						'Content-Type': 'application/json',
+						'x-api-key': apiKey
+					}
+				});
+				const data = await response.json();
+				document.getElementById('consoleLog').innerHTML = data.message + consoleLog.innerHTML || data.error + consoleLog.innerHTML;
+				document.getElementById('consoleLog').innerHTML = '<br>' + consoleLog.innerHTML;
+				if (data.isConnected !== undefined) {
+                updateSessionStatus(sessionId, data.isConnected);
+				}
+			} catch (error) {
+				document.getElementById('consoleLog').innerHTML = 'Error starting session:', error + consoleLog.innerHTML;
+				document.getElementById('consoleLog').innerHTML = '<br>' + consoleLog.innerHTML;
+				alert('Error starting session. Check console for details.');
+			}
+		}
+	
+
+        async function scanQRCode() {
+            const sessionId = document.getElementById('sessionId').value;
+            const apiKey = document.getElementById('apiKey').value;
+
+            try {
+                const response = await fetch(`${apiBaseUrl}/sessions/${sessionId}/qrcode`, {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'x-api-key': apiKey
+                    }
+                });
+                const data = await response.json();
+                if (data.qrCodeUrl) {
+                    const qrCodeImage = `<img src="${data.qrCodeUrl}" alt="QR Code" style="max-width: 300px;"/>`;
+                    document.getElementById('consoleLog').innerHTML = `QR Code for session ${sessionId}:<br> ${qrCodeImage}<br>` + consoleLog.innerHTML;
+                } else {
+                    alert(data.error);
+                }
+            } catch (error) {
+                document.getElementById('consoleLog').innerHTML = 'Error fetching QR code:', error + consoleLog.innerHTML;
+				document.getElementById('consoleLog').innerHTML = '<br>' + consoleLog.innerHTML;
+                alert('Error fetching QR code. Check console for details.');
+            }
+        }
+
+    async function getApiKey(sessionId) {
+    if (!sessionId) {
+        sessionId = document.getElementById('sessionId').value;
+    }
+
+    try {
+        const systemApiKeyResponse = await fetch(`${apiBaseUrl}/system-api-key`, {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+        const systemApiKeyData = await systemApiKeyResponse.json();
+        const systemApiKey = systemApiKeyData.key;
+
+        const response = await fetch(`${apiBaseUrl}/key/${sessionId}`, {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-system-api-key': systemApiKey
+            }
+        });
+
+        const data = await response.json();
+
+        if (data.apiKey) {
+            document.getElementById('apiKey').value = data.apiKey;
+            document.getElementById('consoleLog').innerHTML = `API Key: ${data.apiKey}` + consoleLog.innerHTML;
+			document.getElementById('consoleLog').innerHTML = '<br>' + consoleLog.innerHTML;
+            return data.apiKey; // Return the API key
+        } else {
+            document.getElementById('consoleLog').innerHTML = 'API key not found, generating a new one...<br>' + consoleLog.innerHTML;
+            await generateApiKey(sessionId, systemApiKey);
+        }
+    } catch (error) {
+        document.getElementById('consoleLog').innerHTML = 'Error fetching API key: ' + error + '<br>' + consoleLog.innerHTML;
+        alert('Error fetching API key. Check console for details.');
+    }
+}
+
+
+        async function generateApiKey(sessionId, systemApiKey) {
+            try {
+                const response = await fetch(`${apiBaseUrl}/key/${sessionId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'x-system-api-key': systemApiKey
+                    }
+                });
+                const data = await response.json();
+                document.getElementById('apiKey').value = data.apiKey;
+                document.getElementById('consoleLog').innerHTML = `Generated API Key: ${data.apiKey}<br>` + consoleLog.innerHTML;
+            } catch (error) {
+                document.getElementById('consoleLog').innerHTML = 'Error generating API key:', error + consoleLog.innerHTML;
+				document.getElementById('consoleLog').innerHTML = '<br>' + consoleLog.innerHTML;
+                alert('Error generating API key. Check console for details.');
+            }
+        }
+
+        async function sendMessage() {
+            const sessionId = document.getElementById('sessionId').value;
+            const number = document.getElementById('messageNumber').value;
+            const text = document.getElementById('messageText').value;
+            const apiKey = document.getElementById('apiKey').value;
+
+            try {
+                const response = await fetch(`${apiBaseUrl}/send/${sessionId}/messages`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'x-api-key': apiKey
+                    },
+                    body: JSON.stringify({ number, text })
+                });
+                const data = await response.json();
+                document.getElementById('consoleLog').innerHTML = data.message + consoleLog.innerHTML || data.error + consoleLog.innerHTML;
+				document.getElementById('consoleLog').innerHTML = '<br>' + consoleLog.innerHTML;
+            } catch (error) {
+                document.getElementById('consoleLog').innerHTML = 'Error sending message:', error + consoleLog.innerHTML;
+				document.getElementById('consoleLog').innerHTML = '<br>' + consoleLog.innerHTML;
+                alert('Error sending message. Check console for details.');
+            }
+        }
+
+        async function setupWebhook() {
+            const sessionId = document.getElementById('sessionId').value;
+            const webhookUrl = document.getElementById('webhookUrl').value;
+			const apiKey = document.getElementById('apiKey').value;
+
+            try {
+                const response = await fetch(`${apiBaseUrl}/webhook/${sessionId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+						'x-api-key': apiKey
+                    },
+                    body: JSON.stringify({ webhookUrl })
+                });
+                const data = await response.json();
+                document.getElementById('consoleLog').innerHTML = data.message + consoleLog.innerHTML || data.error + consoleLog.innerHTML;
+				document.getElementById('consoleLog').innerHTML = '<br>' + consoleLog.innerHTML;
+            } catch (error) {
+                document.getElementById('consoleLog').innerHTML ='Error setting up webhook:', error + consoleLog.innerHTML;
+				document.getElementById('consoleLog').innerHTML = '<br>' + consoleLog.innerHTML;
+                alert('Error setting up webhook. Check console for details.');
+            }
+        }
+
+        async function sendImage() {
+            const sessionId = document.getElementById('sessionId').value;
+            const number = document.getElementById('messageNumber').value;
+            const caption = document.getElementById('imageText').value;
+            const imageUrl = document.getElementById('imageUrl').value;
+            const apiKey = document.getElementById('apiKey').value;
+
+            try {
+                const response = await fetch(`${apiBaseUrl}/send/${sessionId}/messages/image`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'x-api-key': apiKey
+                    },
+                    body: JSON.stringify({ number, text: caption, attachment: { url: imageUrl } })
+                });
+                const data = await response.json();
+                document.getElementById('consoleLog').innerHTML = data.message + consoleLog.innerHTML || data.error + consoleLog.innerHTML;
+				document.getElementById('consoleLog').innerHTML = '<br>' + consoleLog.innerHTML;
+            } catch (error) {
+                document.getElementById('consoleLog').innerHTML = 'Error sending image:', error + consoleLog.innerHTML;
+				document.getElementById('consoleLog').innerHTML = '<br>' + consoleLog.innerHTML;
+                alert('Error sending image. Check console for details.');
+            }
+        }
+
+        async function sendPDF() {
+            const sessionId = document.getElementById('sessionId').value;
+            const number = document.getElementById('messageNumber').value;
+            const caption = document.getElementById('pdfText').value;
+            const pdfUrl = document.getElementById('pdfUrl').value;
+            const apiKey = document.getElementById('apiKey').value;
+
+            try {
+                const response = await fetch(`${apiBaseUrl}/send/${sessionId}/messages/file`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'x-api-key': apiKey
+                    },
+                    body: JSON.stringify({ number, text: caption, attachment: { url: pdfUrl, fileName: 'document.pdf' } }) // Adjust file name as needed
+                });
+                const data = await response.json();
+                document.getElementById('consoleLog').innerHTML = data.message + consoleLog.innerHTML || data.error + consoleLog.innerHTML;
+				document.getElementById('consoleLog').innerHTML = '<br>' + consoleLog.innerHTML;
+            } catch (error) {
+                document.getElementById('consoleLog').innerHTML = 'Error sending PDF:', error + consoleLog.innerHTML;
+				document.getElementById('consoleLog').innerHTML = '<br>' + consoleLog.innerHTML;
+                alert('Error sending PDF. Check console for details.');
+            }
+        }
+
+         async function fetchSessions() {
+            try {
+                const response = await fetch(`${apiBaseUrl}/sessions`);
+                const sessions = await response.json();
+                const sessionTableBody = document.getElementById('sessionTableBody');
+                sessionTableBody.innerHTML = ''; // Clear existing rows
+
+                sessions.forEach(session => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td class="border px-4 py-2">${session.sessionId}</td>
+                        <td class="border px-4 py-2">${session.isConnected ? 'Connected' : 'Disconnected'}</td>
+                        <td class="border px-4 py-2">${session.webhookUrl}</td>
+                        <td class="border px-4 py-2">
+                            <button class="btn btn-danger" onclick="deleteSession('${session.sessionId}')">Delete</button>
+                        </td>
+                    `;
+                    sessionTableBody.appendChild(row);
+                });
+                document.getElementById('consoleLog').innerHTML = 'Sessions table data refreshed' + consoleLog.innerHTML;
+				document.getElementById('consoleLog').innerHTML = '<br>' + consoleLog.innerHTML;
+            } catch (error) {
+                document.getElementById('consoleLog').innerHTML = 'Error fetching sessions:', error + consoleLog.innerHTML;
+                document.getElementById('consoleLog').innerHTML = '<br>' + consoleLog.innerHTML;
+            }
+        }
+
+        async function deleteSession(sessionId) {
+    if (confirm(`Are you sure you want to delete session ${sessionId}?`)) {				
+        try {
+            const delapikey = await getApiKey(sessionId); // Get the API key
+            const response = await fetch(`${apiBaseUrl}/sessions/${sessionId}`, {
+                method: 'DELETE',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-api-key': delapikey // Use the returned API key
+                }
+            });
+
+            if (response.ok) {
+                document.getElementById('consoleLog').innerHTML = `Session ${sessionId} deleted successfully.` + consoleLog.innerHTML;
+				document.getElementById('consoleLog').innerHTML = '<br>' + consoleLog.innerHTML;
+                fetchSessions(); // Refresh session list after deletion
+            } else {
+                const errorData = await response.json();
+                document.getElementById('consoleLog').innerHTML = `Error deleting session: ${errorData.error} + consoleLog.innerHTML;
+				document.getElementById('consoleLog').innerHTML = '<br>' + consoleLog.innerHTML;
+            }
+        } catch (error) {
+            document.getElementById('consoleLog').innerHTML = 'Error deleting session: ' + error + '<br>' + consoleLog.innerHTML; // Correct error logging
+        }
+    }
+}
+
+
+
+// Fetch available sessions on page load
+        window.onload = function() {
+            fetchSessions(); // Initial fetch
+        };
+
+    </script>
+</body>
+</html>
