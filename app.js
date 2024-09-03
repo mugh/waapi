@@ -1,5 +1,7 @@
 require('dotenv').config(); // Load environment variables from .env file
-
+const fs = require('fs'); 
+const path = require('path'); 
+const Boom = require('@hapi/boom');
 const express = require('express');
 const mongoose = require('mongoose');
 const {
@@ -16,7 +18,7 @@ const {
     validationResult
 } = require('express-validator');
 const rateLimit = require('express-rate-limit');
-
+const qrcodeTerminal = require('qrcode-terminal'); // Import the qrcode-terminal package
 const app = express();
 const port = 3000;
 
@@ -158,102 +160,141 @@ const checkSystemApiKey = (req, res, next) => {
     next();
 };
 
+// Function to delete the session folder if it exists
+const deleteSessionFolder = (sessionId) => {
+    const sessionFolderPath = path.join(__dirname, 'sessions', sessionId); // Construct the path to the session folder
+    if (fs.existsSync(sessionFolderPath)) { // Check if the folder exists
+        fs.rmSync(sessionFolderPath, { recursive: true, force: true }); // Delete the folder and its contents
+        console.log(`Deleted session folder: ${sessionFolderPath}`);
+    }
+};
+
 // Function to initialize a socket connection for a given session ID
 const startSock = async (sessionId) => {
+
     const { state, saveCreds } = await useMultiFileAuthState(`./sessions/${sessionId}`);
     const sock = makeWASocket({
         auth: state,
-        printQRInTerminal: false,
+        printQRInTerminal: false, // Set this to false if using qrcode-terminal
         browser: ['waapi-mugh', 'Chrome', '100']
     });
 
     sessions[sessionId] = {
         sock,
         qrCodeUrl: null,
-        isConnected: false
+        isConnected: false,
+        qrTimeout: null,
+        qrTimeoutReached: false // Flag to track if the timeout has been reached
     };
 
     sock.ev.on('creds.update', saveCreds);
 
-    let qrTimeout;
-    let manualDisconnect = false; // Flag to indicate a manual disconnect
-
+    // Connection update event handler
     sock.ev.on('connection.update', async (update) => {
-		const { connection, qr, lastDisconnect } = update;
+        const { connection, lastDisconnect, qr } = update;
 
-		if (connection === 'close') {
-			// Check if the session exists before trying to access its properties
-			if (sessions[sessionId]) {
-				sessions[sessionId].isConnected = false;
-				await Session.findOneAndUpdate({ sessionId }, { isConnected: false }, { new: true });
+        if (connection === 'close') {
+            const shouldReconnect = lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut;
+            console.log('Connection closed due to', lastDisconnect.error, ', reconnecting:', shouldReconnect);
 
-				if (manualDisconnect) {
-					console.log(`Connection closed for session ${sessionId} due to manual disconnect.`);
-					return;
-				}
+            // Check for unauthorized error
+            if (lastDisconnect.error?.output?.statusCode === 401) {
+                console.log(`Session ${sessionId} is logged out. Clearing session state and prompting for new QR code...`);
+                
+                // Clear the session state
+                await Session.deleteOne({ sessionId }); // Remove from database
+                delete sessions[sessionId]; // Clean up in-memory session
+				deleteSessionFolder(sessionId); // Delete the session folder 
+				
+                // Start a new session
+                //await startSock(sessionId); // Reinitialize the socket
+                return; // Exit the current function
+            }
 
-				const shouldReconnect = (lastDisconnect && lastDisconnect.error && lastDisconnect.error.output && lastDisconnect.error.output.statusCode !== DisconnectReason.loggedOut);
-				console.log(`Connection closed for session ${sessionId}. Reconnecting: ${shouldReconnect}`);
-				if (shouldReconnect) startSock(sessionId);
-				} else {
-					console.log(`Session ${sessionId} does not exist. Cannot update connection status.`);
-				}
-			} else if (connection === 'open') {
-				console.log(`Connection opened for session ${sessionId}`);
-				if (sessions[sessionId]) {
-					sessions[sessionId].isConnected = true;
-					await Session.findOneAndUpdate({ sessionId }, { isConnected: true }, { new: true });
-					clearTimeout(qrTimeout); // Clear timeout if connection is open
-				} else {
-					console.log(`Session ${sessionId} does not exist. Cannot update connection status.`);
-				}
-			} else if (qr) {
-				console.log(`QR code for session ${sessionId}: ${qr}`);
-				const qrCodeUrl = await QRCode.toDataURL(qr);
-				if (sessions[sessionId]) {
-					sessions[sessionId].qrCodeUrl = qrCodeUrl;
-					await Session.findOneAndUpdate({ sessionId }, { qrCodeUrl }, { new: true });
-				}
-        
-			// Set a timeout to close the socket if the QR code is not scanned
-			qrTimeout = setTimeout(() => {
-					console.log(`QR code not scanned for session ${sessionId}. Closing connection.`);
-					manualDisconnect = true; // Set the flag for manual disconnect
-					sock.end(); // Use end to close the socket connection
-			}, 1 * 60 * 1000); // 1 minute timeout
-		}
-	});
+            // Handle QR refs attempts ended error
+            if (lastDisconnect.error?.message === 'QR refs attempts ended') {
+                console.log(`QR not scan attempts ended for session ${sessionId}. Deleting session...`);
+                await Session.deleteOne({ sessionId }); // Remove from database
+                delete sessions[sessionId]; // Clean up in-memory session
+				deleteSessionFolder(sessionId); // Delete the session folder 
+                return; // Exit the current function
+            }
 
+            if (shouldReconnect) {
+                await startSock(sessionId); // Reconnect if not logged out
+            } else {
+                console.log(`Session ${sessionId} is logged out. Cannot reconnect.`);
+                delete sessions[sessionId]; // Clean up session
+                await Session.deleteOne({ sessionId }); // Remove from database
+				deleteSessionFolder(sessionId); // Delete the session folder 
+            }
+        } else if (connection === 'open') {
+            console.log(`Connection opened for session ${sessionId}`);
+            sessions[sessionId].isConnected = true;
 
+            // Clear the QR timeout if the connection is opened
+            if (sessions[sessionId].qrTimeout) {
+                clearTimeout(sessions[sessionId].qrTimeout);
+                sessions[sessionId].qrTimeout = null; // Reset the timeout reference
+            }
+
+            await Session.findOneAndUpdate({ sessionId }, { isConnected: true }, { new: true });
+        } else if (qr) {
+            // Check if the timeout has already been reached
+            if (!sessions[sessionId].qrTimeoutReached) {
+                console.log(`QR code for session ${sessionId}: ${qr}`);
+                const qrCodeUrl = await QRCode.toDataURL(qr);
+                sessions[sessionId].qrCodeUrl = qrCodeUrl;
+                await Session.findOneAndUpdate({ sessionId }, { qrCodeUrl }, { new: true });
+
+                // Print the QR code to the terminal with smaller size
+                qrcodeTerminal.generate(qr, { small: true }); // Generate and print the QR code with small size
+
+                /* Set a timeout to end the socket if the QR code is not scanned within 3 minutes
+                sessions[sessionId].qrTimeout = setTimeout(async () => {
+                    console.log(`QR code not scanned for session ${sessionId}. Closing connection.`);
+                    sessions[sessionId].isConnected = false; // Update isConnected to false
+                    await Session.findOneAndUpdate({ sessionId }, { isConnected: false }, { new: true }); // Update in database
+                    sock.end(); // Use end to close the socket connection
+                    sessions[sessionId].qrTimeoutReached = true; // Set flag to true
+                }, 3 * 60 * 1000); // 3 minutes */
+            } else {
+                console.log(`QR code generation skipped for session ${sessionId} as timeout has already been reached.`);
+            }
+        }
+    });
+
+    // Message upsert event handling
     sock.ev.on('messages.upsert', async (upsert) => {
-		const senderNumber = upsert.messages[0]?.key.remoteJid?.split('@')[0];
-		const webhook = await Webhook.findOne({ sessionId });
-		if (webhook) {
-			try {
-				// Validate the webhook URL
-				new URL(webhook.webhookUrl); // This will throw if the URL is invalid
-            
-				await axios.post(webhook.webhookUrl, {
-					sessionId,
-					senderNumber,
-					message: upsert
-				});
-			} catch (error) {
-				if (error instanceof TypeError) {
-					console.error(`Invalid webhook URL for session ${sessionId}: ${webhook.webhookUrl}`);
-				} else {
-					console.error(`Error sending data to webhook: ${error.message}`);
-				}
-			}
-		} else {
-			console.log(`No webhook URL configured for session ${sessionId}`);
-		}
-	});
+        const senderNumber = upsert.messages[0]?.key.remoteJid?.split('@')[0];
+        const webhook = await Webhook.findOne({ sessionId });
+        if (webhook) {
+            try {
+                // Validate the webhook URL
+                new URL(webhook.webhookUrl); // This will throw if the URL is invalid
+
+                await axios.post(webhook.webhookUrl, {
+                    sessionId,
+                    senderNumber,
+                    message: upsert
+                });
+            } catch (error) {
+                if (error instanceof TypeError) {
+                    console.error(`Invalid webhook URL for session ${sessionId}: ${webhook.webhookUrl}`);
+                } else {
+                    console.error(`Error sending data to webhook: ${error.message}`);
+                }
+            }
+        } else {
+            console.log(`No webhook URL configured for session ${sessionId}`);
+        }
+    });
 
     // Save initial session data to MongoDB when starting a new session
     await Session.findOneAndUpdate({ sessionId }, { sessionId, qrCodeUrl: null, isConnected: true }, { upsert: true });
     console.log(`Socket initialized for session ${sessionId}`);
 };
+
 
 // Function to restore sessions on startup
 const restoreSessions = async () => {
@@ -320,7 +361,10 @@ app.delete('/sessions/:sessionId', checkApiKey, async (req, res) => {
 
     // Remove the session from the database
     await Session.deleteOne({ sessionId });
-
+	
+	//delete session folder
+	deleteSessionFolder(sessionId);
+	
     res.status(200).json({
         message: `Session ${sessionId} deleted successfully`
     });
