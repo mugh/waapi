@@ -212,7 +212,7 @@ const startSock = async (sessionId) => {
             const shouldReconnect = lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut;
             console.log('Connection closed due to', lastDisconnect.error, ', reconnecting:', shouldReconnect);
 
-            // Check for unauthorized error
+            /*// Check for unauthorized error
             if (lastDisconnect.error?.output?.statusCode === 401) {
                 console.log(`Session ${sessionId} is logged out. Clearing session state and prompting for new QR code...`);
                 
@@ -224,9 +224,9 @@ const startSock = async (sessionId) => {
                 // Start a new session
                 //await startSock(sessionId); // Reinitialize the socket
                 return; // Exit the current function
-            }
-
-            // Handle QR refs attempts ended error
+            }*/
+			
+            //Handle QR refs attempts ended error
             if (lastDisconnect.error?.message === 'QR refs attempts ended') {
                 console.log(`QR not scan attempts ended for session ${sessionId}. Deleting session...`);
                 await Session.deleteOne({ sessionId }); // Remove from database
