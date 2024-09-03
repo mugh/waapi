@@ -2,6 +2,11 @@
 A very simple Node js script for whatsapp api using bailey, support multi session. 
 
 Changelog 22-8-2024
+ 1. The script now have simple frontend, access to localhost:3000. 
+ 2. fixing some error in recoonection, deleteing session
+ 3. adding a few endpoint to use for frontend
+    
+Changelog 22-8-2024
  1. The script now saving to mongodb, edit mongodb_uri via .env. 
  2. fixing error handling of bad webhook url and session deletion
     
