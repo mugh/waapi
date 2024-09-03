@@ -1,6 +1,6 @@
 require('dotenv').config(); // Load environment variables from .env file
-const fs = require('fs'); 
-const path = require('path'); 
+const fs = require('fs');
+const path = require('path');
 const Boom = require('@hapi/boom');
 const express = require('express');
 const mongoose = require('mongoose');
@@ -110,11 +110,13 @@ const loadConfig = async () => {
     const systemApiKeyData = await SystemApiKey.findOne({});
     if (systemApiKeyData) {
         SYSTEM_API_KEY = decrypt(systemApiKeyData.key);
-		console.log(`System API Key: ${SYSTEM_API_KEY}`);		// Decrypt the stored key
+        console.log(`System API Key: ${SYSTEM_API_KEY}`); // Decrypt the stored key
     } else {
         SYSTEM_API_KEY = crypto.randomBytes(32).toString('hex');
         const encryptedKey = encrypt(SYSTEM_API_KEY);
-        await new SystemApiKey({ key: encryptedKey }).save();
+        await new SystemApiKey({
+            key: encryptedKey
+        }).save();
         console.log(`Generated and saved new System API Key: ${SYSTEM_API_KEY}`);
     }
 };
@@ -122,14 +124,26 @@ const loadConfig = async () => {
 // Save API keys to MongoDB
 const saveApiKeys = async () => {
     for (const sessionId in apiKeys) {
-        await ApiKey.findOneAndUpdate({ sessionId }, { apiKey: apiKeys[sessionId] }, { upsert: true });
+        await ApiKey.findOneAndUpdate({
+            sessionId
+        }, {
+            apiKey: apiKeys[sessionId]
+        }, {
+            upsert: true
+        });
     }
 };
 
 // Save webhooks to MongoDB
 const saveWebhooks = async () => {
     for (const sessionId in webhooks) {
-        await Webhook.findOneAndUpdate({ sessionId }, { webhookUrl: webhooks[sessionId] }, { upsert: true });
+        await Webhook.findOneAndUpdate({
+            sessionId
+        }, {
+            webhookUrl: webhooks[sessionId]
+        }, {
+            upsert: true
+        });
     }
 };
 
@@ -145,9 +159,13 @@ app.use(limiter);
 // Middleware to check API key
 const checkApiKey = async (req, res, next) => {
     const apiKey = req.headers['x-api-key'];
-    const { sessionId } = req.params;
+    const {
+        sessionId
+    } = req.params;
 
-    const storedApiKey = await ApiKey.findOne({ sessionId });
+    const storedApiKey = await ApiKey.findOne({
+        sessionId
+    });
     if (!apiKey || !sessionId || (storedApiKey && storedApiKey.apiKey !== apiKey)) {
         return res.status(403).send('Forbidden: Invalid API key or sessionId');
     }
@@ -178,7 +196,10 @@ const deleteSessionFolder = (sessionId) => {
     if (fs.existsSync(sessionFolderPath)) { // Check if the folder exists
         try {
             // Use fs.rmdirSync with recursive option to ensure all contents are deleted
-            fs.rmSync(sessionFolderPath, { recursive: true, force: true }); // Delete the folder and its contents
+            fs.rmSync(sessionFolderPath, {
+                recursive: true,
+                force: true
+            }); // Delete the folder and its contents
             console.log(`Deleted session folder: ${sessionFolderPath}`);
         } catch (error) {
             console.error(`Error deleting session folder: ${error.message}`);
@@ -189,7 +210,10 @@ const deleteSessionFolder = (sessionId) => {
 // Function to initialize a socket connection for a given session ID
 const startSock = async (sessionId) => {
 
-    const { state, saveCreds } = await useMultiFileAuthState(`./sessions/${sessionId}`);
+    const {
+        state,
+        saveCreds
+    } = await useMultiFileAuthState(`./sessions/${sessionId}`);
     const sock = makeWASocket({
         auth: state,
         printQRInTerminal: false, // Set this to false if using qrcode-terminal
@@ -206,7 +230,11 @@ const startSock = async (sessionId) => {
 
     // Connection update event handler
     sock.ev.on('connection.update', async (update) => {
-        const { connection, lastDisconnect, qr } = update;
+        const {
+            connection,
+            lastDisconnect,
+            qr
+        } = update;
 
         if (connection === 'close') {
             const shouldReconnect = lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut;
@@ -225,13 +253,15 @@ const startSock = async (sessionId) => {
                 //await startSock(sessionId); // Reinitialize the socket
                 return; // Exit the current function
             }*/
-			
+
             //Handle QR refs attempts ended error
             if (lastDisconnect.error?.message === 'QR refs attempts ended') {
                 console.log(`QR not scan attempts ended for session ${sessionId}. Deleting session...`);
-                await Session.deleteOne({ sessionId }); // Remove from database
+                await Session.deleteOne({
+                    sessionId
+                }); // Remove from database
                 delete sessions[sessionId]; // Clean up in-memory session
-				deleteSessionFolder(sessionId); // Delete the session folder 
+                deleteSessionFolder(sessionId); // Delete the session folder 
                 return; // Exit the current function
             }
 
@@ -240,25 +270,41 @@ const startSock = async (sessionId) => {
             } else {
                 console.log(`Session ${sessionId} is logged out. Cannot reconnect.`);
                 delete sessions[sessionId]; // Clean up session
-                await Session.deleteOne({ sessionId }); // Remove from database
-				deleteSessionFolder(sessionId); // Delete the session folder 
+                await Session.deleteOne({
+                    sessionId
+                }); // Remove from database
+                deleteSessionFolder(sessionId); // Delete the session folder 
             }
         } else if (connection === 'open') {
             console.log(`Connection opened for session ${sessionId}`);
             sessions[sessionId].isConnected = true;
-            await Session.findOneAndUpdate({ sessionId }, { isConnected: true }, { new: true });
+            await Session.findOneAndUpdate({
+                sessionId
+            }, {
+                isConnected: true
+            }, {
+                new: true
+            });
         } else if (qr) {
-                   
-                console.log(`QR code for session ${sessionId}: ${qr}`);
-                const qrCodeUrl = await QRCode.toDataURL(qr);
-                if (sessions[sessionId]) {
-					sessions[sessionId].qrCodeUrl = qrCodeUrl;
-					await Session.findOneAndUpdate({ sessionId }, { qrCodeUrl }, { new: true });
-				} else {
-					console.error(`Session ${sessionId} is not initialized. Cannot set qrCodeUrl.`);
-				}
-                // Print the QR code to the terminal with smaller size
-                qrcodeTerminal.generate(qr, { small: true }); // Generate and print the QR code with small size
+
+            console.log(`QR code for session ${sessionId}: ${qr}`);
+            const qrCodeUrl = await QRCode.toDataURL(qr);
+            if (sessions[sessionId]) {
+                sessions[sessionId].qrCodeUrl = qrCodeUrl;
+                await Session.findOneAndUpdate({
+                    sessionId
+                }, {
+                    qrCodeUrl
+                }, {
+                    new: true
+                });
+            } else {
+                console.error(`Session ${sessionId} is not initialized. Cannot set qrCodeUrl.`);
+            }
+            // Print the QR code to the terminal with smaller size
+            qrcodeTerminal.generate(qr, {
+                small: true
+            }); // Generate and print the QR code with small size
 
         }
     });
@@ -266,7 +312,9 @@ const startSock = async (sessionId) => {
     // Message upsert event handling
     sock.ev.on('messages.upsert', async (upsert) => {
         const senderNumber = upsert.messages[0]?.key.remoteJid?.split('@')[0];
-        const webhook = await Webhook.findOne({ sessionId });
+        const webhook = await Webhook.findOne({
+            sessionId
+        });
         if (webhook) {
             try {
                 // Validate the webhook URL
@@ -290,7 +338,15 @@ const startSock = async (sessionId) => {
     });
 
     // Save initial session data to MongoDB when starting a new session
-    await Session.findOneAndUpdate({ sessionId }, { sessionId, qrCodeUrl: null, isConnected: true }, { upsert: true });
+    await Session.findOneAndUpdate({
+        sessionId
+    }, {
+        sessionId,
+        qrCodeUrl: null,
+        isConnected: true
+    }, {
+        upsert: true
+    });
     console.log(`Socket initialized for session ${sessionId}`);
 };
 
@@ -306,7 +362,9 @@ const restoreSessions = async () => {
         }
 
         for (const storedSession of storedSessions) {
-            const { sessionId } = storedSession;
+            const {
+                sessionId
+            } = storedSession;
             console.log(`Attempting to restore session: ${sessionId}`);
             await startSock(sessionId);
         }
@@ -324,7 +382,9 @@ loadConfig().then(() => {
 
 // Start the socket for a given session ID and get QR code
 app.post('/sessions/:sessionId/start', checkApiKey, async (req, res) => {
-    const { sessionId } = req.params;
+    const {
+        sessionId
+    } = req.params;
     try {
         await startSock(sessionId);
         res.status(200).json({
@@ -340,7 +400,9 @@ app.post('/sessions/:sessionId/start', checkApiKey, async (req, res) => {
 
 // Endpoint to delete a session by session ID
 app.delete('/sessions/:sessionId', checkApiKey, async (req, res) => {
-    const { sessionId } = req.params;
+    const {
+        sessionId
+    } = req.params;
 
     // Check if the session exists
     if (!sessions[sessionId]) {
@@ -352,20 +414,26 @@ app.delete('/sessions/:sessionId', checkApiKey, async (req, res) => {
     // Close the socket if it exists
     //const sock = sessions[sessionId].sock;
     //if (sock) {
-     //   sock.end(); // Close the socket connection
+    //   sock.end(); // Close the socket connection
     //}
 
     // Remove the session from the sessions object
     delete sessions[sessionId];
 
     // Remove the session from the database
-    await Session.deleteOne({ sessionId });
-	await Webhook.deleteOne({ sessionId });
-	await ApiKey.deleteOne({ sessionId });
+    await Session.deleteOne({
+        sessionId
+    });
+    await Webhook.deleteOne({
+        sessionId
+    });
+    await ApiKey.deleteOne({
+        sessionId
+    });
 
-	//delete session folder
-	deleteSessionFolder(sessionId);
-	
+    //delete session folder
+    deleteSessionFolder(sessionId);
+
     res.status(200).json({
         message: `Session ${sessionId} deleted successfully`
     });
@@ -373,10 +441,14 @@ app.delete('/sessions/:sessionId', checkApiKey, async (req, res) => {
 
 // Check if a socket is already started for a given session ID
 app.get('/sessions/:sessionId/status', async (req, res) => {
-    const { sessionId } = req.params;
+    const {
+        sessionId
+    } = req.params;
 
     // Fetch the session status from MongoDB
-    const sessionData = await Session.findOne({ sessionId });
+    const sessionData = await Session.findOne({
+        sessionId
+    });
 
     if (sessionData) {
         // Return RUNNING if connected, otherwise return STOPPED
@@ -393,7 +465,9 @@ app.get('/sessions/:sessionId/status', async (req, res) => {
 
 // Get the QR code for a specific session ID
 app.get('/sessions/:sessionId/qrcode', checkApiKey, async (req, res) => {
-    const { sessionId } = req.params;
+    const {
+        sessionId
+    } = req.params;
     const session = sessions[sessionId];
 
     if (session && session.qrCodeUrl) {
@@ -411,11 +485,13 @@ app.get('/sessions/:sessionId/qrcode', checkApiKey, async (req, res) => {
 
 // Generate a new API key for a specific session ID
 app.post('/key/:sessionId', checkSystemApiKey, async (req, res) => {
-    const { sessionId } = req.params;
+    const {
+        sessionId
+    } = req.params;
     const apiKey = crypto.randomBytes(32).toString('hex');
-    apiKeys[sessionId] = apiKey;  // Update the in-memory object
-    await saveApiKeys();          // Save to MongoDB
-    
+    apiKeys[sessionId] = apiKey; // Update the in-memory object
+    await saveApiKeys(); // Save to MongoDB
+
     res.status(200).json({
         sessionId,
         apiKey
@@ -424,15 +500,19 @@ app.post('/key/:sessionId', checkSystemApiKey, async (req, res) => {
 
 // Get the API key for a specific session ID
 app.get('/key/:sessionId', checkSystemApiKey, async (req, res) => {
-    const { sessionId } = req.params;
-    const apiKeyData = await ApiKey.findOne({ sessionId });
+    const {
+        sessionId
+    } = req.params;
+    const apiKeyData = await ApiKey.findOne({
+        sessionId
+    });
 
     if (!apiKeyData) {
         return res.status(404).json({
             error: `API key not found for session ${sessionId}`
         });
     }
-    
+
     res.status(200).json({
         apiKey: apiKeyData.apiKey
     });
@@ -440,16 +520,22 @@ app.get('/key/:sessionId', checkSystemApiKey, async (req, res) => {
 
 // Delete the API key for a specific session ID
 app.delete('/key/:sessionId', checkSystemApiKey, async (req, res) => {
-    const { sessionId } = req.params;
+    const {
+        sessionId
+    } = req.params;
 
-    const apiKeyData = await ApiKey.findOne({ sessionId });
+    const apiKeyData = await ApiKey.findOne({
+        sessionId
+    });
     if (!apiKeyData) {
         return res.status(404).json({
             error: `API key not found for session ${sessionId}`
         });
     }
 
-    await ApiKey.deleteOne({ sessionId });
+    await ApiKey.deleteOne({
+        sessionId
+    });
     delete apiKeys[sessionId]; // Remove from in-memory object
     res.status(200).json({
         message: `API key deleted for session ${sessionId}`
@@ -467,11 +553,15 @@ app.post('/webhook/:sessionId', checkApiKey,
             });
         }
 
-        const { sessionId } = req.params;
-        const { webhookUrl } = req.body;
+        const {
+            sessionId
+        } = req.params;
+        const {
+            webhookUrl
+        } = req.body;
 
-        webhooks[sessionId] = webhookUrl;  // Update the in-memory object
-        await saveWebhooks();               // Save to MongoDB
+        webhooks[sessionId] = webhookUrl; // Update the in-memory object
+        await saveWebhooks(); // Save to MongoDB
 
         res.status(200).json({
             message: `Webhook URL set for session ${sessionId}`
@@ -481,8 +571,12 @@ app.post('/webhook/:sessionId', checkApiKey,
 
 // Get the webhook URL for a specific session ID
 app.get('/webhook/:sessionId', checkApiKey, async (req, res) => {
-    const { sessionId } = req.params;
-    const webhookData = await Webhook.findOne({ sessionId });
+    const {
+        sessionId
+    } = req.params;
+    const webhookData = await Webhook.findOne({
+        sessionId
+    });
 
     if (!webhookData) {
         return res.status(404).json({
@@ -498,7 +592,10 @@ app.get('/webhook/:sessionId', checkApiKey, async (req, res) => {
 
 // Webhook endpoint to listen for new incoming messages
 app.post('/webhook/new-message', checkApiKey, (req, res) => {
-    const { sessionId, message } = req.body;
+    const {
+        sessionId,
+        message
+    } = req.body;
     console.log(`Webhook received new message for session ${sessionId}:`, message);
     res.status(200).send('Webhook received new message');
 });
@@ -508,7 +605,9 @@ app.post('/webhook/new-message', checkApiKey, (req, res) => {
 app.get('/sessions/:sessionId/check/:phone',
     checkApiKey,
     param('sessionId').isString().withMessage('Invalid sessionId'),
-    param('phone').isString().isLength({ min: 10 }).withMessage('Invalid phone number'),
+    param('phone').isString().isLength({
+        min: 10
+    }).withMessage('Invalid phone number'),
     async (req, res) => {
         const errors = validationResult(req);
         if (!errors.isEmpty()) {
@@ -517,7 +616,10 @@ app.get('/sessions/:sessionId/check/:phone',
             });
         }
 
-        const { sessionId, phone } = req.params;
+        const {
+            sessionId,
+            phone
+        } = req.params;
         const session = sessions[sessionId];
 
         if (!session) {
@@ -565,8 +667,13 @@ app.post('/send/:sessionId/messages',
             });
         }
 
-        const { sessionId } = req.params;
-        const { number, text } = req.body; // Extract number instead of id
+        const {
+            sessionId
+        } = req.params;
+        const {
+            number,
+            text
+        } = req.body; // Extract number instead of id
 
         const session = sessions[sessionId];
         if (!session) {
@@ -622,8 +729,14 @@ app.post('/send/:sessionId/messages/image',
             });
         }
 
-        const { sessionId } = req.params;
-        const { number, text, attachment } = req.body;
+        const {
+            sessionId
+        } = req.params;
+        const {
+            number,
+            text,
+            attachment
+        } = req.body;
 
         const session = sessions[sessionId];
         if (!session) {
@@ -687,8 +800,14 @@ app.post('/send/:sessionId/messages/file',
             });
         }
 
-        const { sessionId } = req.params;
-        const { number, text, attachment } = req.body; // Extract number instead of id
+        const {
+            sessionId
+        } = req.params;
+        const {
+            number,
+            text,
+            attachment
+        } = req.body; // Extract number instead of id
 
         const session = sessions[sessionId];
         if (!session) {
@@ -741,10 +860,10 @@ app.get('/sessions', async (req, res) => {
     try {
         // Fetch all sessions
         const storedSessions = await Session.find({});
-        
+
         // Fetch all webhooks
         const storedWebhooks = await Webhook.find({});
-        
+
         // Create a map of webhook URLs by session ID
         const webhookMap = {};
         storedWebhooks.forEach(webhook => {
@@ -761,7 +880,9 @@ app.get('/sessions', async (req, res) => {
         res.status(200).json(sessionsWithWebhooks);
     } catch (error) {
         console.error('Error fetching sessions:', error);
-        res.status(500).json({ error: 'Failed to fetch sessions' });
+        res.status(500).json({
+            error: 'Failed to fetch sessions'
+        });
     }
 });
 
@@ -771,13 +892,19 @@ app.get('/system-api-key', restrictToLocalhost, async (req, res) => {
         const systemApiKeyData = await SystemApiKey.findOne({});
         if (systemApiKeyData) {
             const decryptedKey = decrypt(systemApiKeyData.key); // Assuming you have a decrypt function
-            res.status(200).json({ key: decryptedKey });
+            res.status(200).json({
+                key: decryptedKey
+            });
         } else {
-            res.status(404).json({ error: 'System API key not found' });
+            res.status(404).json({
+                error: 'System API key not found'
+            });
         }
     } catch (error) {
         console.error('Error fetching system API key:', error);
-        res.status(500).json({ error: 'Failed to fetch system API key' });
+        res.status(500).json({
+            error: 'Failed to fetch system API key'
+        });
     }
 });
 
