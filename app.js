@@ -891,7 +891,7 @@ app.get('/system-api-key', restrictToLocalhost, async (req, res) => {
     try {
         const systemApiKeyData = await SystemApiKey.findOne({});
         if (systemApiKeyData) {
-            const decryptedKey = decrypt(systemApiKeyData.key); // Assuming you have a decrypt function
+            const decryptedKey = decrypt(systemApiKeyData.key); 
             res.status(200).json({
                 key: decryptedKey
             });
