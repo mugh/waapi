@@ -182,9 +182,7 @@ const startSock = async (sessionId) => {
     sessions[sessionId] = {
         sock,
         qrCodeUrl: null,
-        isConnected: false,
-        qrTimeout: null,
-        qrTimeoutReached: false // Flag to track if the timeout has been reached
+        isConnected: false
     };
 
     sock.ev.on('creds.update', saveCreds);
@@ -231,13 +229,6 @@ const startSock = async (sessionId) => {
         } else if (connection === 'open') {
             console.log(`Connection opened for session ${sessionId}`);
             sessions[sessionId].isConnected = true;
-
-            // Clear the QR timeout if the connection is opened
-            if (sessions[sessionId].qrTimeout) {
-                clearTimeout(sessions[sessionId].qrTimeout);
-                sessions[sessionId].qrTimeout = null; // Reset the timeout reference
-            }
-
             await Session.findOneAndUpdate({ sessionId }, { isConnected: true }, { new: true });
         } else if (qr) {
             // Check if the timeout has already been reached
@@ -250,14 +241,6 @@ const startSock = async (sessionId) => {
                 // Print the QR code to the terminal with smaller size
                 qrcodeTerminal.generate(qr, { small: true }); // Generate and print the QR code with small size
 
-                /* Set a timeout to end the socket if the QR code is not scanned within 3 minutes
-                sessions[sessionId].qrTimeout = setTimeout(async () => {
-                    console.log(`QR code not scanned for session ${sessionId}. Closing connection.`);
-                    sessions[sessionId].isConnected = false; // Update isConnected to false
-                    await Session.findOneAndUpdate({ sessionId }, { isConnected: false }, { new: true }); // Update in database
-                    sock.end(); // Use end to close the socket connection
-                    sessions[sessionId].qrTimeoutReached = true; // Set flag to true
-                }, 3 * 60 * 1000); // 3 minutes */
             } else {
                 console.log(`QR code generation skipped for session ${sessionId} as timeout has already been reached.`);
             }
