@@ -19,7 +19,8 @@ Changelog 2-8-2024
 
 # Installation
 donwload or clone the files. run `yarn`, edit .env specified correct mongodb_uri and then `node app.js` the server will run in port 3000.
-To change port simply edit app.js change `const port = 3000` to something else
+To change port simply edit app.js change `const port = 3000` to something else.
+Access frontend trhough browser on localhost:3000 (or other port if you change it)
 
 # API
 use openapi.json in postman or swagger to see all available endpoint
