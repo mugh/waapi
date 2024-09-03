@@ -3,7 +3,7 @@ A very simple Node js script for whatsapp api using bailey, support multi sessio
 
 Changelog 3-9-2024
  1. The script now have simple frontend, access to localhost:3000. 
- 2. fixing some error in recoonection, deleteing session
+ 2. fixing some error in reconnection, deleting session and qr scan timeout
  3. adding a few endpoint to use for frontend
     
 Changelog 22-8-2024
