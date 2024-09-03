@@ -424,7 +424,7 @@
                 fetchSessions(); // Refresh session list after deletion
             } else {
                 const errorData = await response.json();
-                document.getElementById('consoleLog').innerHTML = `Error deleting session: ${errorData.error} + consoleLog.innerHTML;
+                document.getElementById('consoleLog').innerHTML = `Error deleting session: ${errorData.error}.` + consoleLog.innerHTML;
 				document.getElementById('consoleLog').innerHTML = '<br>' + consoleLog.innerHTML;
             }
         } catch (error) {
